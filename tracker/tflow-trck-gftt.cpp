@@ -1,4 +1,4 @@
-﻿#include "..\tflow-build-cfg.hpp"
+﻿#include "../tflow-build-cfg.hpp"
 
 #if _WIN32
 #include <windows.h>
@@ -14,7 +14,7 @@
 #include <assert.h>
 #include <time.h>
 
-#include "..\tflow-glib.hpp"
+#include "../tflow-glib.hpp"
 #endif
 
 #include <opencv2/opencv.hpp>
@@ -24,9 +24,9 @@ namespace draw = cv::gapi::wip::draw;
 
 #define IDLE_INTERVAL_MSEC 300
 
-#include "..\tflow-render.hpp"
-#include "..\tflow-common.hpp"
-#include "..\tflow-perfmon.hpp"
+#include "../tflow-render.hpp"
+#include "../tflow-common.hpp"
+#include "../tflow-perfmon.hpp"
 
 #include "tflow-trck-feature.hpp"
 #include "tflow-trck-gftt.hpp"

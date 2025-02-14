@@ -78,7 +78,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'" Label="Configuration">
     <UseDebugLibraries>true</UseDebugLibraries>
     <ConfigurationType>Makefile</ConfigurationType>
-    <RemoteRootDir>~/compulab-nxp-bsp/build-ucm-imx8m-plus/workspace/sources/tflow-process</RemoteRootDir>
+    <RemoteRootDir>~/compulab-nxp-bsp/build-ucm-imx8m-plus/workspace/sources/tflow-process-tracker</RemoteRootDir>
     <RemoteProjectRelDir />
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
@@ -105,6 +105,7 @@
     <RemoteBuildOutputs>../oe-workdir/tflow-process-tracker-1.0/tflow-process-tracker</RemoteBuildOutputs>
   </PropertyGroup>
   <ItemGroup>
+    <ClCompile Include="..\main.cpp" />
     <ClCompile Include="..\tflow-buf-cli.cpp" />
     <ClCompile Include="..\tflow-buf-srv.cpp" />
     <ClCompile Include="..\tflow-ctrl-cli-port.cpp" />

@@ -1,5 +1,5 @@
 #pragma once
-#include "..\tflow-build-cfg.hpp"
+#include "../tflow-build-cfg.hpp"
 
 #include <vector>
 
@@ -12,9 +12,9 @@
 #else
 #endif
 
-#include "..\tflow-common.hpp"
-#include "..\tflow-perfmon.hpp"
-#include "..\tflow-algo.hpp"
+#include "../tflow-common.hpp"
+#include "../tflow-perfmon.hpp"
+#include "../tflow-algo.hpp"
 
 #include "tflow-trck-imu.hpp"
 #include "tflow-trck-feature.hpp"
@@ -66,15 +66,6 @@ public:
     void initDashboardFrame(uint8_t* data_ptr);                 // Create/Init Dashboard from provided data buffer.
 
     static constexpr int TFLOWBUF_MSG_CUSTOM_TRACKER = (TFlowBufPck::TFLOWBUF_MSG_CUSTOM_ + 1);    // 0x81
-
-    enum class CoordState {
-                      // TODO: Add WEAK coordinate state? I.e. coordinate tracked by less preision inertia method
-        ABSENT,       // Coordinate is unknown yet. 
-        NO_REF,       // We've got coordinate but without a reference. I.e. absolute coordinate relative to GRP creation point
-        START,        // Got an absolute correction from AP (GPS/IMU). Same as OK and is used for rendering only.
-        OK,           // All good.
-        FAULT         // GRP points are gone.
-    };
 
     enum class RenderDbg {
         NONE     = 0,

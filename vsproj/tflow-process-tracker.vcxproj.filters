@@ -52,6 +52,7 @@
     <ClCompile Include="..\tflow-streamer.cpp" />
     <ClCompile Include="..\tflow-tracelog.cpp" />
     <ClCompile Include="..\tflow-ctrl-process.cpp" />
+    <ClCompile Include="..\main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\tracker\tflow-trck.hpp">

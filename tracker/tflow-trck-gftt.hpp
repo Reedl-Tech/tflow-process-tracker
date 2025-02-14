@@ -1,6 +1,6 @@
 #pragma once
 
-#include "..\tflow-build-cfg.hpp"
+#include "../tflow-build-cfg.hpp"
 
 #include <vector>
 #include <thread>
@@ -10,7 +10,7 @@
 
 #if OFFLINE_TRACKER
 #else 
-#include "..\tflow-ctrl-process.hpp"
+#include "../tflow-ctrl-process.hpp"
 #endif
 
 #include "tflow-trck-cfg.hpp"

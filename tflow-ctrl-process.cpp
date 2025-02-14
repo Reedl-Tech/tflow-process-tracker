@@ -33,9 +33,6 @@ static const std::string process_raw_cfg_default{ R"(
                 "optf_flags"            : 0,
                 "optf_min_eig_thr"      : 0.001,
                 "frame_rate_limit"      : 30,
-                "imu_corr_weight"       : 0.15,
-                "imu_corr_presc"        : 20,
-                "gps_sync_presc"        : 10,
                 "dbg_render"            : 255,
                 "gftt" : {
                     "max_corner"    : 1,
@@ -48,16 +45,13 @@ static const std::string process_raw_cfg_default{ R"(
                     "harris_k"      : 0.04,
                     "render_dbg"    : 0
                 },
-                "sensor" : {
-                    "param1" : 0
-                },
                 "perfmon" : {
                     "dbg_render" : 2,
                     "lbl_x" : 250,
                     "lbl_y" : 230
                 },
                 "dashboard" : {
-                    "main_win_w" : 800,        
+                    "main_win_w" : 400,        
                     "main_win_h" : 600,
                     "map_scale"  : 4
                 }

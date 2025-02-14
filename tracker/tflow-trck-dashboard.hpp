@@ -2,7 +2,7 @@
 #include <vector>
 #include <opencv2/opencv.hpp>
 
-#include "..\tflow-tracelog.hpp"
+#include "../tflow-tracelog.hpp"
 
 #include "tflow-trck.hpp"
 
@@ -15,8 +15,6 @@ public:
     TFlowTrackerDashboard(const TFlowTrackerCfg::cfg_trck_dashboard* cfg);
 
     TFlowTraceLog         dbg_str;
-    Point2f               grp_frame_center;
-    Point2f               gps_frame_center;
 
     /* Render Map specific - GUI callbacks */
     void onMouse(int event, int x, int y, int flags);

@@ -3,7 +3,7 @@
 #include <thread>
 #include <signal.h>
 
-#include "tflow-process.h"
+#include "tflow-process.hpp"
 
 TFlowProcess *gp_app;
 
@@ -56,7 +56,7 @@ int main(int argc, char** argv)
     
     g_info("TFlow Process started");
 
-    std::string cfg_fname("/etc/tflow/tflow-process-config.json");
+    std::string cfg_fname("/etc/tflow/tflow-process-tracker-config.json");
     getConfigFilename(argc, argv[1], cfg_fname);
 
     MainContextPtr context = Glib::MainContext::get_default();

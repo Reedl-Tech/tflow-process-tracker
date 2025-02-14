@@ -1,4 +1,4 @@
-#include "..\tflow-build-cfg.hpp"
+#include "../tflow-build-cfg.hpp"
 
 #include <cstdio>
 #include <cassert>
@@ -7,7 +7,7 @@
 #if _WIN32
 #include <windows.h>
 #else 
-#include "..\tflow-glib.hpp"
+#include "../tflow-glib.hpp"
 #endif
 
 #include <opencv2/opencv.hpp>
@@ -17,8 +17,8 @@
 using namespace cv;
 namespace draw = cv::gapi::wip::draw;
 
-#include "..\tflow-common.hpp"
-#include "..\tflow-tracelog.hpp"
+#include "../tflow-common.hpp"
+#include "../tflow-tracelog.hpp"
 
 #include "tflow-trck-cfg.hpp"
 #include "tflow-trck.hpp"

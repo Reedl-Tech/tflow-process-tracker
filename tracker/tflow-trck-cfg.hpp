@@ -1,7 +1,7 @@
 #pragma once
 
-#include "..\tflow-ctrl.hpp"
-#include "..\tflow-perfmon.hpp"
+#include "../tflow-ctrl.hpp"
+#include "../tflow-perfmon.hpp"
 
 class TFlowTrackerCfg {
 

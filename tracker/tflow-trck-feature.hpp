@@ -4,8 +4,8 @@
 #include <opencv2/gapi.hpp>
 
 
-#include "..\tflow-render.hpp"
-#include "..\tflow-tracelog.hpp"
+#include "../tflow-render.hpp"
+#include "../tflow-tracelog.hpp"
 
 #include "tflow-trck-imu.hpp"
 

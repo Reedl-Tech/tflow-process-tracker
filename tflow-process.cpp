@@ -1,9 +1,11 @@
 #include "tflow-build-cfg.hpp"
 
 #include <cstdlib>
-#include <pthread.h>
+#include <thread>
 #include <iostream>
 #include <functional>
+
+#include <pthread.h>
 
 #include <sys/ioctl.h>
 #include <sys/mman.h>

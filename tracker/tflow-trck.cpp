@@ -1,4 +1,4 @@
-#include "..\tflow-build-cfg.hpp"
+#include "../tflow-build-cfg.hpp"
 
 #if _WIN32
 #include <windows.h>
@@ -20,8 +20,8 @@
 #include <opencv2/gapi/render.hpp>
 
 
-#include "..\tflow-process.hpp"  // for TFlowBufPck
-#include "..\tflow-ctrl-process.hpp"
+#include "../tflow-process.hpp"  // for TFlowBufPck
+#include "../tflow-ctrl-process.hpp"
 
 #include "tflow-trck-cfg.hpp"
 #include "tflow-trck.hpp"
@@ -33,13 +33,12 @@ namespace draw = cv::gapi::wip::draw;
 
 TFlowAlgo* TFlowProcess::createAlgoInstance(std::vector<cv::Mat>& _in_frames, const TFlowCtrl::tflow_cmd_field_t *cfg)
 {
-    cfg->
-    return new TFlowTracker(in_frames, &tflow_trck_cfg.cmd_flds_cfg_tracker);
+    return new TFlowTracker(in_frames, (TFlowTrackerCfg::cfg_tracker*)cfg->v.ref);
 }
 
 #define ATIC320_9p1mm   0
-#define TWIN412_9p1mm   1
-#define COIN417G2_9p1mm 0
+#define TWIN412_9p1mm   0
+#define COIN417G2_9p1mm 1
 
 /*****************************************************************************
     GFTT Cells  ATIC320              GFTT Cells  FLYN384
@@ -63,8 +62,8 @@ TFlowTracker::TFlowTracker(
     in_frames(_in_frames),
 
 #if ATIC320_9p1mm
-    sensor(Size(in_frames.at(0).cols, in_frames.at(0).rows), 28.1, 21.3, 7.8),
-    gftt((TFlowCtrlProcess::cfg_trck_gftt*)(_cfg->gftt.v.ref), in_frames.at(0).cols, in_frames.at(0).rows, 31, 30, 3, 3),
+//    sensor(Size(in_frames.at(0).cols, in_frames.at(0).rows), 28.1, 21.3, 7.8),
+    gftt((TFlowTrackerCfg::cfg_trck_gftt*)(_cfg->gftt.v.ref), in_frames.at(0).cols, in_frames.at(0).rows, 31, 30, 3, 3),
 
 #elif TWIN412_9p1mm
 //    sensor(Size(in_frames.at(0).cols, in_frames.at(0).rows), 29.1, 21.8, 9.1),
@@ -73,9 +72,8 @@ TFlowTracker::TFlowTracker(
 
 
 #elif COIN417G2_9p1mm
-    sensor(Size(in_frames.at(0).cols, in_frames.at(0).rows), 39.5.1, 30.1, 9.1),
-    gftt((TFlowCtrlProcess::cfg_trck_gftt*)(_cfg->gftt.v.ref), in_frames.at(0).cols, in_frames.at(0).rows, 39, 36, 3, 3),
-
+//    sensor(Size(in_frames.at(0).cols, in_frames.at(0).rows), 39.5.1, 30.1, 9.1),
+    gftt((TFlowTrackerCfg::cfg_trck_gftt*)(_cfg->gftt.v.ref), in_frames.at(0).cols, in_frames.at(0).rows, 39, 36, 3, 3),
 #endif
 
     perf_mon((TFlowPerfMon::cfg_tflow_perfmon*)_cfg->perfmon.v.ref),
@@ -195,21 +193,13 @@ void TFlowTracker::featSparse()
             std::min_element(sparse_arena.begin(), sparse_arena.end(),
                 [](TFlowFeature* a, TFlowFeature* b) {
 
-                    if (a->is_grp != b->is_grp) {
-                        /* GRP members always in priority over other*/
-                        return !a->is_grp;
-                    }
-
                     if (a->quality_scores != b->quality_scores) {
                         return (a->quality_scores < b->quality_scores);
-                    }
-                   if (a->pca_scores != b->pca_scores) {
-                        return (a->pca_scores < b->pca_scores);
                     }
 
                     // Contrast & Scores are the same - compare by distance
                     return (a->sparse_min_dist_sq_avg < b->sparse_min_dist_sq_avg);
-                   });
+                });
 
         // For debugging purposes, don't delete the feature right now
         // Mark the feature as sparced and it will be delted later, after DBG trace
@@ -248,7 +238,6 @@ void TFlowTracker::featCheckDistribution(vector<int>& cells_idx, const TFlowImu&
 
         cell_scores.at(i) = cfg->max_features_per_cell.v.num - cell_scores.at(i);
         if (cell_scores.at(i) > 0) {
-            cell_scores.at(i) *= cell_ranks.at(i);  // Apply ranks correction
             cells_idx.push_back(i);
         }
     }
@@ -277,39 +266,10 @@ void TFlowTracker::featRespawn(const Mat &frame, const TFlowImu& imu)
         vector<unsigned char> flow_status;
         vector<float> flow_err;
 
-#if FIX_ME_01
-        int cfg_gftt_min_dist = (500 ^ 2); // frmae coordinate lost, while 3 grp still exist
-#else
         int cfg_new_feat_min_dist_sq = (cfg->new_feat_min_dist.v.num ^ 2);       // 500 - bad; 600 - OK, 700 - not good
         
-#endif
         for (auto& gftt_feat : gftt.gftt_features) {
-
-#if FIX_ME_0
-            // AV: Note: Filtering by distance works better from gftt update.
-            //           While there shouldn't be difference. Need to be debugged.
-            auto it_feat = features.begin();
-            int min_dist_sq = INT_MAX;
-            while (it_feat != features.end()) {
-                TFlowFeature& feat = (it_feat++)->second;
-
-                if (feat.is_out_of_fov) continue;
-                if (feat.is_sparced) continue;
-
-                Point2f feat_pos = feat.pos;
-                auto a = feat_pos - gftt_feat.pos;
-                min_dist_sq = MIN(min_dist_sq, (int)roundf(a.dot(a)));
-
-                
-                if (min_dist_sq < cfg_new_feat_min_dist_sq) break;
-            } // Existing features travers
-
-            if ( min_dist_sq > cfg_new_feat_min_dist_sq)  {
                 gftt_points.push_back(gftt_feat.pos);
-            }
-#else
-                gftt_points.push_back(gftt_feat.pos);
-#endif
         }
 
         // Check is pyramid's parameters were changed  (gftt_pyr vs curr_pyr)

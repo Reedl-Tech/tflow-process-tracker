@@ -10,8 +10,8 @@
 #include <opencv2/gapi.hpp>
 
 //#define TRACE SYSLOG
-#include "..\tflow-tracelog.hpp"
-#include "..\tflow-render.hpp"
+#include "../tflow-tracelog.hpp"
+#include "../tflow-render.hpp"
 
 #include "tflow-trck-feature.hpp"
 
