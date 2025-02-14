@@ -1,0 +1,116 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Tracker">
+      <UniqueIdentifier>{6118f816-4b93-4aa6-9cab-7d172955e09a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shared">
+      <UniqueIdentifier>{b8f07ba1-baa0-46d9-a8dc-de43d10b3be6}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shared\Buf">
+      <UniqueIdentifier>{e5fd9781-a0bb-450f-8eda-8b9b42fb377e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shared\Ctrl">
+      <UniqueIdentifier>{bdb2b969-b0fc-4cb4-849e-a9f747b6ae80}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\tracker\tflow-trck.cpp">
+      <Filter>Tracker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tracker\tflow-trck-cfg.cpp">
+      <Filter>Tracker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tracker\tflow-trck-dashboard.cpp">
+      <Filter>Tracker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tracker\tflow-trck-feature.cpp">
+      <Filter>Tracker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tracker\tflow-trck-gftt.cpp">
+      <Filter>Tracker</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tflow-buf-cli.cpp">
+      <Filter>Shared\Buf</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tflow-buf-srv.cpp">
+      <Filter>Shared\Buf</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tflow-ctrl.cpp">
+      <Filter>Shared\Ctrl</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tflow-ctrl-cli-port.cpp">
+      <Filter>Shared\Ctrl</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tflow-ctrl-srv.cpp">
+      <Filter>Shared\Ctrl</Filter>
+    </ClCompile>
+    <ClCompile Include="..\tflow-perfmon.cpp" />
+    <ClCompile Include="..\tflow-player.cpp" />
+    <ClCompile Include="..\tflow-process.cpp" />
+    <ClCompile Include="..\tflow-render.cpp" />
+    <ClCompile Include="..\tflow-streamer.cpp" />
+    <ClCompile Include="..\tflow-tracelog.cpp" />
+    <ClCompile Include="..\tflow-ctrl-process.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\tracker\tflow-trck.hpp">
+      <Filter>Tracker</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tracker\tflow-trck-cfg.hpp">
+      <Filter>Tracker</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tracker\tflow-trck-dashboard.hpp">
+      <Filter>Tracker</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tracker\tflow-trck-feature.hpp">
+      <Filter>Tracker</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tracker\tflow-trck-gftt.hpp">
+      <Filter>Tracker</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tflow-buf.hpp">
+      <Filter>Shared\Buf</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tflow-buf-cli.hpp">
+      <Filter>Shared\Buf</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tflow-buf-pck.hpp">
+      <Filter>Shared\Buf</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tflow-buf-srv.hpp">
+      <Filter>Shared\Buf</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tflow-ctrl.hpp">
+      <Filter>Shared\Ctrl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tflow-ctrl-cli-port.hpp">
+      <Filter>Shared\Ctrl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tflow-ctrl-srv.hpp">
+      <Filter>Shared\Ctrl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tflow-ctrl-srv-process.hpp">
+      <Filter>Shared\Ctrl</Filter>
+    </ClInclude>
+    <ClInclude Include="..\tflow-algo.hpp" />
+    <ClInclude Include="..\tflow-build-cfg.hpp" />
+    <ClInclude Include="..\tflow-common.hpp" />
+    <ClInclude Include="..\tflow-glib.hpp" />
+    <ClInclude Include="..\tflow-perfmon.hpp" />
+    <ClInclude Include="..\tflow-player.hpp" />
+    <ClInclude Include="..\tflow-process.hpp" />
+    <ClInclude Include="..\tflow-render.hpp" />
+    <ClInclude Include="..\tflow-streamer.hpp" />
+    <ClInclude Include="..\tflow-tracelog.hpp" />
+    <ClInclude Include="..\tracker\tflow-trck-imu.hpp" />
+    <ClInclude Include="..\tflow-ctrl-process.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\.gitignore" />
+    <None Include="..\LICENSE" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\CMakeLists.txt" />
+  </ItemGroup>
+</Project>

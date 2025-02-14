@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="Current" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <RemoteDebuggingTarget>270623776;ucm-imx8m-plus (username=, port=22, authentication=Password)</RemoteDebuggingTarget>
+    <RemoteDebuggerCommand>/home/root/tflow-process-tracker</RemoteDebuggerCommand>
+    <RemoteDebuggerWorkingDirectory>/home/root/</RemoteDebuggerWorkingDirectory>
+    <AdditionalDebuggerCommands>set substitute-path /usr/src/debug/tflow-process-tracker/1.0-r0 /home/av/compulab-nxp-bsp/build-ucm-imx8m-plus/workspace/sources/tflow-process-tracker</AdditionalDebuggerCommands>
+    <RemoteDebuggingMode>gdbserver</RemoteDebuggingMode>
+    <RemoteGDBPath>C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\VC\Linux\bin\gdb\gdb-multiarch\gdb-multiarch.exe</RemoteGDBPath>
+    <DebuggerFlavor>LinuxDebugger</DebuggerFlavor>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
+    <RemoteDebuggingTarget>270623776;ucm-imx8m-plus (username=, port=22, authentication=Password)</RemoteDebuggingTarget>
+    <RemoteDebuggerCommand>/home/root/tflow-process-tracker</RemoteDebuggerCommand>
+    <RemoteDebuggerWorkingDirectory>/home/root/</RemoteDebuggerWorkingDirectory>
+    <AdditionalDebuggerCommands>set substitute-path /usr/src/debug/tflow-process-tracker/1.0-r0 /home/av/compulab-nxp-bsp/build-ucm-imx8m-plus/workspace/sources/tflow-process-tracker</AdditionalDebuggerCommands>
+    <RemoteDebuggingMode>gdbserver</RemoteDebuggingMode>
+    <RemoteGDBPath>C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\VC\Linux\bin\gdb\gdb-multiarch\gdb-multiarch.exe</RemoteGDBPath>
+    <DebuggerFlavor>LinuxDebugger</DebuggerFlavor>
+  </PropertyGroup>
+</Project>

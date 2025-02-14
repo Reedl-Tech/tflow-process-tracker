@@ -1,0 +1,24 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.12.35527.113
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "tflow-process-tracker", "tflow-process-tracker.vcxproj", "{5A811DF4-BE7F-46C5-8F64-27F422532DC1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|ARM64 = Debug|ARM64
+		Release|ARM64 = Release|ARM64
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{5A811DF4-BE7F-46C5-8F64-27F422532DC1}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{5A811DF4-BE7F-46C5-8F64-27F422532DC1}.Debug|ARM64.Build.0 = Debug|ARM64
+		{5A811DF4-BE7F-46C5-8F64-27F422532DC1}.Debug|ARM64.Deploy.0 = Debug|ARM64
+		{5A811DF4-BE7F-46C5-8F64-27F422532DC1}.Release|ARM64.ActiveCfg = Release|ARM64
+		{5A811DF4-BE7F-46C5-8F64-27F422532DC1}.Release|ARM64.Build.0 = Release|ARM64
+		{5A811DF4-BE7F-46C5-8F64-27F422532DC1}.Release|ARM64.Deploy.0 = Release|ARM64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
