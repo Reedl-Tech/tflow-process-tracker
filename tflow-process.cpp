@@ -92,33 +92,6 @@ int TFlowBuf::age() {
     return (now_ms - proc_frame_ms);
 }
 
-#if 0
-TFlowBufPck::~TFlowBufPck() {
-    if (d.hdr.id == TFLOWBUF_MSG_CONSUME) {
-        if (buf_cli) {
-            buf_cli->sendRedeem(d.consume.buff_index);
-        }
-        if (player) {
-            player->sendRedeem(d.consume.buff_index);
-        }
-    }
-
-    // g_warning("--- pck deleted %d", id);
-}
-TFlowBufPck::TFlowBufPck(TFlowPlayer* _player)
-{
-    player = _player;
-    buf_cli = nullptr;
-    // g_warning("+++ pck created %d", id);
-}
-TFlowBufPck::TFlowBufPck(TFlowBufCli *_buf_cli)
-{
-    buf_cli = _buf_cli;
-    player = nullptr;
-    // g_warning("+++ pck created %d", id);
-}
-#endif
-
 TFlowProcess::TFlowProcess(MainContextPtr _context, const std::string cfg_fname) :
     context(_context),
     ctrl(*this, cfg_fname)
@@ -144,28 +117,16 @@ TFlowProcess::TFlowProcess(MainContextPtr _context, const std::string cfg_fname)
     
     main_loop = Glib::MainLoop::create(context, false);
 
-#if SRC_PLAYER
-    player = new TFlowPlayer(this, context, &ctrl.cmd_flds_cfg_player,  4); // 2 should be enough
-    buf_cli = nullptr;
-#elif SRC_CAM
-    buf_cli = new TFlowBufCli(
-        context,
-        "TFlowProcess", "com.reedl.tflow.capture.buf-server",
-        std::bind(&TFlowProcess::onFrame, this, std::placeholders::_1),         // TFlowBufCli::app_onFrame()
-        std::bind(&TFlowProcess::onSrcReadyCam, this, std::placeholders::_1),   // TFlowBufCli::app_onSrcReady()
-        std::bind(&TFlowProcess::onSrcGone, this),                              // TFlowBufCli::app_onSrcGone()
-        std::bind(&TFlowProcess::onConnect, this),                              // TFlowBufCli::app_onConnect()
-        std::bind(&TFlowProcess::onDisconnect, this));                          // TFlowBufCli::app_onDisconnect()
 
+    buf_cli = nullptr;
     player = nullptr;
-#endif
-    
     fifo_streamer = nullptr;    // Created on SrcReady Player or buf_cli
 
-    Glib::signal_timeout().connect(sigc::mem_fun(*this, &TFlowProcess::onIdle), IDLE_INTERVAL_MSEC);
-
     // Get OpenCL configuration from config
-    // setOpenCL(false/true);
+    setOpenCL(ctrl.cmd_flds_config.opencl.v.num);
+    setVideoSrc(ctrl.cmd_flds_config.video_src.v.str);
+
+    Glib::signal_timeout().connect(sigc::mem_fun(*this, &TFlowProcess::onIdle), IDLE_INTERVAL_MSEC);
 }
 
 TFlowProcess::~TFlowProcess()
@@ -214,7 +175,7 @@ bool TFlowProcess::onIdle()
 
         if (g_dbg_me) {
             g_dbg_me = 0;
-            player->onAction(TFlowPlayer::ACTION_PLAY);
+            player->onAction(TFlowPlayer::ACTION::PLAY);
         }
     }
 
@@ -227,43 +188,97 @@ bool TFlowProcess::onIdle()
     return true;
 }
 
-void TFlowProcess::setOpenCL(bool ocl_enabled) {
+void TFlowProcess::setOpenCL(int ocl_enabled) {
 
     if (!cv::ocl::haveOpenCL()) {
         g_info("OpenCL is not available...");
         return;
     }
 
-    cv::ocl::setUseOpenCL(ocl_enabled);
+    cv::ocl::setUseOpenCL(!!ocl_enabled);
 
     g_info("TFlowProcess: OpenCL %s in use",
         cv::ocl::useOpenCL() ? "is" : "isn't" );
 
-#define OPENCL_INFO  0
+    // Add some OpenCL info if requested
+    if (ocl_enabled > 1) {
+        cv::ocl::Context context;
+        if (!context.create(cv::ocl::Device::TYPE_ALL)) {
+            g_warning("Failed creating the context...");
+            return;
+        }
 
-#if OPENCL_INFO
-    cv::ocl::Context context;
-    if (!context.create(cv::ocl::Device::TYPE_ALL)) {
-        g_warning("Failed creating the context...");
-        return;
-    }
+        g_info("TFlowProcess: %ld OpenCL devices are detected.", context.ndevices());
 
-    g_info("TFlowProcess: %d OpenCL devices are detected.",  context.ndevices()); 
-
-    for (int i = 0; i < context.ndevices(); i++) {
-        cv::ocl::Device device = context.device(i);
-        g_info( "\tname: %s \r\n"
-                "\tavailable: %d\r\n" 
+        for (int i = 0; i < context.ndevices(); i++) {
+            cv::ocl::Device device = context.device(i);
+            g_info(
+                "\tname: %s %s %s\r\n"
+                "\tavailable: %d\r\n"
                 "\timageSupport: %d\r\n"
                 "\tOpenCL_C_Version: %s\r\n",
-            device.name(),
-            device.available(),
-            device.imageSupport(),
-            device.OpenCL_C_Version());
+                device.vendorName().c_str(),
+                device.name().c_str(),
+                device.version().c_str(),
+                device.available(),
+                device.imageSupport(),
+                device.OpenCL_C_Version().c_str());
+        }
+    }
+    // cv::ocl::Device(context.device(0));
+
+}
+
+int TFlowProcess::setVideoSrc(const char* video_src)
+{
+    // Disable not selected
+    if (video_src == nullptr ||
+        strcmp(video_src, "disabled") == 0 || 
+        strcmp(video_src, "live") == 0 ) {
+        // Disable Player if active
+        if (player) {
+            delete player;
+            player = nullptr;
+            onSrcGone();
+        }
     }
 
-    // cv::ocl::Device(context.device(0));
+    if (video_src == nullptr ||
+        strcmp(video_src, "disabled") == 0 || 
+        strcmp(video_src, "playback") == 0 ) {
+        // Disable Capture Buff client if active
+        if (buf_cli) {
+            delete buf_cli;
+            buf_cli = nullptr;
+            onSrcGone();
+        }
+    }
+
+    // Enable selected if not enabled yet
+    if (video_src && strcmp(video_src, "live") == 0) {
+        if (!buf_cli) {
+            buf_cli = new TFlowBufCli(
+                context,
+                "TFlowProcess", "com.reedl.tflow.capture.buf-server",
+                std::bind(&TFlowProcess::onFrame,       this, std::placeholders::_1),   // TFlowBufCli::app_onFrame()
+                std::bind(&TFlowProcess::onSrcReadyCam, this, std::placeholders::_1),   // TFlowBufCli::app_onSrcReady()
+                std::bind(&TFlowProcess::onSrcGone,     this),                          // TFlowBufCli::app_onSrcGone()
+                std::bind(&TFlowProcess::onConnect,     this),                          // TFlowBufCli::app_onConnect()
+                std::bind(&TFlowProcess::onDisconnect,  this));                         // TFlowBufCli::app_onDisconnect()
+        }
+    }
+    else if (video_src && strcmp(video_src, "playback") == 0) {
+        if (!player) {
+            player = new TFlowPlayer(this, context, &ctrl.cmd_flds_cfg_player, 4);
+#if 0
+            // TODO: replace TFlowProcess reference within Player for a callback, like for buf_clli
+            std::bind(&TFlowProcess::onFrame, this, std::placeholders::_1),             // TFlowBufCli::app_onFrame()
+            std::bind(&TFlowProcess::onSrcReadyPlayer, this, std::placeholders::_1),    // TFlowBufCli::app_onSrcReady()
 #endif
+        }
+    }
+
+    return 0;
 }
 
 void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
@@ -274,7 +289,7 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
 
 #if FIFO_STREAMER
     algo->initDashboardFrame();
-#else if VSTREAM_STREAMER
+#elif VSTREAM_STREAMER
     algo->initDashboardFrame(streamer->getNextDataBuffer());
 #endif
 
@@ -291,13 +306,13 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
     }
 
 #if FIFO_STREAMER
-    {
+    if (fifo_streamer) {
         const uint8_t* buff;
         size_t buff_len;
         algo->getDashboardFrameBuff(&buff, &buff_len);
         fifo_streamer->fifoWrite(buff, buff_len);
     }
-#else if VSTREAM_STREAMER
+#elif VSTREAM_STREAMER
     streamer->consume(free_buff_idx);
 #endif
 
@@ -334,12 +349,7 @@ void TFlowProcess::onDisconnect()
 
 void TFlowProcess::onSrcReady()
 {
-    float dashboard_w, dashboard_h;
-    const TFlowCtrl::tflow_cmd_field_s *algo_cfg = ctrl.cmd_flds_config.algo.v.ref;
-    
-    //algo = createAlgoInstance(in_frames, algo_cfg);
-    algo = createAlgoInstance(in_frames, ctrl.cmd_flds_config.algo.v.ref);
-    
+    algo = TFlowAlgo::createAlgoInstance(in_frames);
 
 #if FIFO_STREAMER
     /* Note: In case of Streamer reuse existing fifo for
@@ -352,7 +362,8 @@ void TFlowProcess::onSrcReady()
      */
     fifo_streamer = new TFlowStreamer();
 
-#else if VSTREAM_STREAMER
+#elif VSTREAM_STREAMER
+    float dashboard_w, dashboard_h;
     algo->getDashboardFrameSize(&dashboard_w, &dashboard_h);
     //streamer = new TFlowStreamerProcess(this, context, 
     //    dashboard_w,
@@ -376,14 +387,11 @@ void TFlowProcess::onSrcReadyPlayer()
         mat_fmt = CV_8UC1;
     }
 
-#if SRC_PLAYER
     for (int i = 0; i < player->buffs_num; i++) {
         in_frames.emplace_back(
             player->frame_height, player->frame_width, mat_fmt, player->frames_tbl[i].data);       // Mat() constructor
     }
     onSrcReady();
-#endif
-
 }
 
 void TFlowProcess::onSrcReadyCam(TFlowBufPck::pck_fd* src_info)
@@ -541,7 +549,3 @@ void TFlowStreamerProcess::onIdleStreamer(struct timespec now_ts)
 #endif
 }
 
-__attribute__((weak)) TFlowAlgo* TFlowProcess::createAlgoInstance(std::vector<cv::Mat>& _in_frames, const TFlowCtrl::tflow_cmd_field_t* cfg)
-{
-    return nullptr;
-}

@@ -43,6 +43,7 @@ public:
 
     std::string fname;
     uint32_t frames_count;
+    uint32_t curr_frame;
 
     uint32_t width;
     uint32_t height;
@@ -107,10 +108,10 @@ public:
     static constexpr char step_str[]  = "step"; // Is used for control only. 
 
     enum ACTION {
-        ACTION_PLAY,
-        ACTION_PAUSE,
-        ACTION_STEP,
-        ACTION_REWIND
+        PLAY,
+        PAUSE,
+        STEP,
+        REWIND
     };
     
     TFlowPlayer(TFlowProcess* app, MainContextPtr context, const TFlowCtrlProcess::cfg_player* cfg, int buffs_num);
@@ -123,7 +124,8 @@ public:
     bool onTick();
     void onTickOnce();
     void onAction(ACTION action);
-    void onDir(const char *curr_dir);   // Reply back with current directory content
+    int onDir(const json11::Json& j_in_params, json11::Json::object& j_out_params);
+    int onCfg(const json11::Json& j_in_params, json11::Json::object& j_out_params);
 
     int Init(const char* media_file_name);
     void Deinit();
@@ -141,7 +143,6 @@ public:
     // Filled by MJPEGCapture, used by TFlowCapture on TFlowBuf preparation
     struct frame_entry {
         uint8_t* data;
-        //MJPEGCapture::imu_data *imu;        // not in use
         int owner_player;
     };
     struct frame_entry *frames_tbl;
@@ -152,17 +153,18 @@ public:
     int last_error;                          // Set in case of file read error (End of File isn't an error)
     int pending_response;                    // CtrlProcess waiting for our config response. Not in use
 
-    int curr_frame;
     int getFramesNum() { return mjpegCapture.frames_count; }
+    int getCurrFrame() { return mjpegCapture.curr_frame; }
 
-    const char* curr_state = nullptr;
+    const char* curr_state;
     const char* getCurrentState() { return curr_state; }
+    double getFrameRate() { return 50; }
 
     int is_play_state()  { return (0 == strcmp(curr_state, play_str )); }
     int is_pause_state() { return (0 == strcmp(curr_state, pause_str)); }
     int is_off_state()   { return (0 == strcmp(curr_state, off_str  )); }
 
-    int rewind(int new_frame) { return (new_frame != cfg->curr_frame.v.num) ? mjpegCapture.rewind(new_frame) : 0; }
+    int rewind(int new_frame) { return (new_frame != mjpegCapture.curr_frame) ? mjpegCapture.rewind(new_frame) : 0; }
 private:
 
     void setCurrentState(const char* new_state) { curr_state = new_state; }

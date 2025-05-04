@@ -20,6 +20,20 @@ public:
     void onMouse(int event, int x, int y, int flags);
 
     void addCamFrame(const Mat& frameBW);
+
+    /* ======== Algo overrides ======= */
+    void initDashboardFrame(uint8_t* data_ptr);
+    void initDashboardFrame();
+    void getDashboardFrameBuff(const uint8_t** buff, size_t* buff_len);
+    void getDashboardFrameSize(float* w, float* h);
+    /* =============================== */
+
+    int onConfigGrid(const std::string &grid_cfg);
+    
+    void onConfig(const json11::Json& j_in_params, json11::Json::object& j_out_params);
+    
+    void renderCamZoom();
+    void renderGrid(vector<draw::Prim>& prims);
     void render();
     
     void instrUpdate(const TFlowImu& imu);
@@ -64,8 +78,11 @@ private:
 
     void compassRenderYaw(vector<draw::Prim>& prims, const Point2f& center, float yaw);
 
-    float map_scale;
-    int map_is_drag;
+    int grid_zoom_step = 0;       // 
+    int grid_sector_ext = 0;      // Grid's sector extension in percent
+    std::vector<int> grid_follow_marks;
+    std::vector<int> grid_sectors_idx;
+    cv::Rect2f grid_sector;
 
 };
 

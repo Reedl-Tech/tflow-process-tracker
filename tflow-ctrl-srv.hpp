@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cassert>
-#include <time.h>
+#include <ctime>
 
 #include <json11.hpp>
 
@@ -24,9 +24,9 @@ public:
     virtual void onTFlowCtrlMsg(const std::string& cmd, const json11::Json& j_in_params, json11::Json::object& j_out_params, int& err) {};
 #if CODE_BROWSE
     TFlowCtrlSrvCapture::onTFlowCtrlMsg();
+    TFlowCtrlSrvVStream::onTFlowCtrlMsg();
     TFlowCtrlSrvProcess::onTFlowCtrlMsg();
         TFlowCtrlProcess::cmd_cb_cfg_player();
-    TFlowCtrlSrvVStream::onTFlowCtrlMsg();
 #endif
 
     MainContextPtr context;

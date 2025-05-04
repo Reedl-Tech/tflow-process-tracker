@@ -19,7 +19,7 @@ public:
         TFlowCtrl::tflow_cmd_field_t   render_dbg;
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_trck_gftt = {
-        .head          = { "tracker-gftt",   TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
+        .head          = { "gftt",           TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
         .max_corner    = { "max_corner",     TFlowCtrl::CFT_NUM, 0, {.num =    1} },
         .qual_lvl      = { "qual_lvl",       TFlowCtrl::CFT_DBL, 0, {.dbl =  0.5} },
         .min_dist      = { "min_dist",       TFlowCtrl::CFT_NUM, 0, {.num =  600} },
@@ -33,10 +33,10 @@ public:
     };
 
     TFlowPerfMon::cfg_tflow_perfmon cmd_flds_cfg_perfmon = {
-        .head         = { "tracker-perfmon", TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
+        .head         = { "per_fmon",        TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
         .dbg_render   = { "dbg_render",      TFlowCtrl::CFT_NUM, 0, {.num =   2} },
-        .lbl_x        = { "lbl_x",           TFlowCtrl::CFT_NUM, 0, {.num = 250} },
-        .lbl_y        = { "lbl_y",           TFlowCtrl::CFT_NUM, 0, {.num = 230} },
+        .lbl_x        = { "lbl_x",           TFlowCtrl::CFT_NUM, 0, {.num = 300} },
+        .lbl_y        = { "lbl_y",           TFlowCtrl::CFT_NUM, 0, {.num = 260} },
         TFLOW_CMD_EOMSG
     };
 
@@ -44,15 +44,15 @@ public:
         TFlowCtrl::tflow_cmd_field_t   head;
         TFlowCtrl::tflow_cmd_field_t   main_win_w;
         TFlowCtrl::tflow_cmd_field_t   main_win_h;
-        TFlowCtrl::tflow_cmd_field_t   map_scale;
         TFlowCtrl::tflow_cmd_field_t   instrument;
+        TFlowCtrl::tflow_cmd_field_t   grid;
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_trck_dashboard = {
-        .head       = { "dashboard",     TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
-        .main_win_w = { "main_win_w",    TFlowCtrl::CFT_NUM, 0, {.num = 800} },
-        .main_win_h = { "main_win_h",    TFlowCtrl::CFT_NUM, 0, {.num = 600} },
-        .map_scale  = { "map_scale",     TFlowCtrl::CFT_NUM, 0, {.num = 4} },
-        .instrument = { "instrument",    TFlowCtrl::CFT_NUM, 0, {.num = 0} },
+        .head       = { "dashboard",  TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
+        .main_win_w = { "main_win_w", TFlowCtrl::CFT_NUM, 0, {.num = 800} },
+        .main_win_h = { "main_win_h", TFlowCtrl::CFT_NUM, 0, {.num = 600} },
+        .instrument = { "instrument", TFlowCtrl::CFT_NUM, 0, {.num = 0} },
+        .grid       = { "grid",       TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
         TFLOW_CMD_EOMSG
     };
 
@@ -77,7 +77,7 @@ public:
         TFlowCtrl::tflow_cmd_field_t   dashboard;
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_tracker = {
-        .head                  = { "tracker",               TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
+        .head                  = { "Tracker",               TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
         .max_features_per_cell = { "max_features_per_cell", TFlowCtrl::CFT_NUM, 0, {.num =     1} },
         .max_gftt_cells        = { "max_gftt_cells",        TFlowCtrl::CFT_NUM, 0, {.num =     9} },
         .new_feat_min_dist     = { "new_feat_min_dist",     TFlowCtrl::CFT_NUM, 0, {.num =   600} },       // not in use part of gftt. TODO: do we need another distance criteria for featSparce?
@@ -100,4 +100,4 @@ public:
 
 };
 
-extern TFlowTrackerCfg tflow_tracker_cfg;
+extern TFlowTrackerCfg tflow_trck_cfg;

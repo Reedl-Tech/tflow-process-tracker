@@ -13,7 +13,6 @@
 #include "tflow-buf-srv.hpp"
 #include "tflow-player.hpp"
 #include "tflow-streamer.hpp"
-#include "tflow-perfmon.hpp"
 #include "tflow-algo.hpp"
 
 class TFlowStreamerProcess : TFlowBufSrv {
@@ -112,7 +111,7 @@ public:
     TFlowPlayer* player;
     TFlowStreamer *fifo_streamer;
 
-    void setOpenCL(bool ocl_enabled);
+    void setOpenCL(int ocl_enabled);
 
     // Tflow buffer callbacks
     void onFrame(std::shared_ptr<TFlowBufPck> sp_pck);
@@ -123,6 +122,7 @@ public:
     void onSrcReadyCam(TFlowBufPck::pck_fd* src_info);
     void onSrcReadyPlayer();
 
+    int setVideoSrc(const char *video_src);
 
     TFlowCtrlProcess ctrl;
 
@@ -137,7 +137,5 @@ private:
     TFlowStreamerProcess *streamer = nullptr;      // Server to stream Process's renders
 
     void onSrcReady();
-
-    TFlowAlgo* createAlgoInstance(std::vector<cv::Mat>& _in_frames, const TFlowCtrl::tflow_cmd_field_t* cfg);
 };
 

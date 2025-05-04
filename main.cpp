@@ -7,6 +7,26 @@
 
 TFlowProcess *gp_app;
 
+gboolean handle_signal(gpointer ctx)
+{
+    g_info("Got INT or TERM signal, terminating...");
+
+    TFlowProcess* app = (TFlowProcess*)ctx;
+    app->main_loop->quit();
+
+    return true;
+}
+
+gboolean handle_signal_(gpointer ctx)
+{
+    g_info("Got INT or TERM signal, terminating...");
+
+    TFlowProcess* app = (TFlowProcess*)ctx;
+    app->main_loop->quit();
+
+    return true;
+}
+
 void getConfigFilename(int argc, char* argv, std::string cfg_fname)
 {
     if (argc > 1) {
@@ -22,34 +42,6 @@ void getConfigFilename(int argc, char* argv, std::string cfg_fname)
     }
 }
 
-gboolean handle_signal(gpointer ctx)
-{
-    g_info("Got INT or TERM signal, terminating...");
-
-    TFlowProcess* app = (TFlowProcess*)ctx;
-    app->main_loop->quit();
-
-    return true;
-}
-
-static void setup_sig_handlers()
-{
-    GSource* src_sigint, * src_sigterm;
-
-    src_sigint = g_unix_signal_source_new(SIGINT);
-    src_sigterm = g_unix_signal_source_new(SIGTERM);
-
-    //g_source_set_callback(src_sigint, (GSourceFunc)handle_signal, gp_app, NULL);
-    //g_source_set_callback(src_sigterm, (GSourceFunc)handle_signal, gp_app, NULL);
-
-    //g_source_attach(src_sigint, gp_app->context);
-    //g_source_attach(src_sigterm, gp_app->context);
-
-    //g_source_unref(src_sigint);
-    //g_source_unref(src_sigterm);
-}
-
-
 int main(int argc, char** argv)
 {
     Gio::init();
@@ -62,16 +54,18 @@ int main(int argc, char** argv)
     MainContextPtr context = Glib::MainContext::get_default();
     gp_app = new TFlowProcess(context, cfg_fname);
 
-    setup_sig_handlers();
-
-    // Block SIGPIPE signal
-    signal(SIGPIPE, SIG_IGN);
+    guint int_id = g_unix_signal_add(SIGINT, handle_signal, gp_app);
+    guint term_id = g_unix_signal_add(SIGTERM, handle_signal, gp_app);
+    
+    signal(SIGPIPE, SIG_IGN); 
 
     gp_app->main_loop->run();
-      
+
+    g_source_remove(int_id);
+    g_source_remove(term_id);
     delete gp_app;
 
-    g_info("App thread exited");
+    g_info("TFlow Process Tracker exited");
 
     return 0;
 }

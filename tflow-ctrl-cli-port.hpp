@@ -25,8 +25,8 @@ private:
 
     int sck_fd;
 
-    bool onMsg(Glib::IOCondition io_cond);
-
+    gboolean onMsg(Glib::IOCondition io_cond);
+    int onMsgRcv();
     int onMsgSign(const json11::Json& j_params);
 
     int sendResp(const char* cmd, int err, const json11::Json::object& j_resp_params);

@@ -1,6 +1,19 @@
+#if _WIN32
+#include <io.h>
+#define open(a, b)    _open(a, b)
+#define close(a)      _close(a)
+#define read(a, b, c) _read(a, b, c)
+#define strdup(a)     _strdup(a)
+#endif
+
+#include <string>
+#include <fcntl.h>
 #include <sys/stat.h>
-#include <glib-unix.h>
-#include <glibmm.h>
+#include <cassert>
+
+#include "tflow-build-cfg.hpp"
+
+#include "tflow-glib.hpp"
 
 #include "tflow-ctrl.hpp"
 
@@ -47,14 +60,15 @@ void TFlowCtrl::getCmdInfo(const tflow_cmd_field_t* fields, Json::object& j_cmd_
     }
 }
 
-int TFlowCtrl::setCmdFields(tflow_cmd_field_t* in_cmd_fields, const Json& in_params)
+int TFlowCtrl::setCmdFields(tflow_cmd_field_t* in_cmd_fields, const Json& j_in_params)
 {
     // Loop over all config command fields and check json_cfg
     tflow_cmd_field_t* cmd_field = in_cmd_fields;
 
-    while (cmd_field->name != nullptr) {
+    std::string del_me = j_in_params.dump();
 
-        const Json& in_field_param = in_params[cmd_field->name];
+    while (cmd_field->name != nullptr) {
+        const Json& in_field_param = j_in_params[cmd_field->name];
 
         if (!in_field_param.is_null()) {
             // Configuration parameter is found in Json config
@@ -108,6 +122,8 @@ int TFlowCtrl::setField(tflow_cmd_field_t* cmd_field, const Json& cfg_param)
             cmd_field->v.num = cfg_param.bool_value();
         }
         else {
+            g_critical("Ooops... at %s (%d) Data type mismatch. Field name: %s (%d != %d)", __FILE__, __LINE__,
+                cmd_field->name, cmd_field->type, cfg_param.type());
             return -1;
         }
         return 0;
@@ -123,25 +139,28 @@ int TFlowCtrl::setField(tflow_cmd_field_t* cmd_field, const Json& cfg_param)
             cmd_field->v.dbl = cfg_param.bool_value();
         }
         else {
+            g_critical("Ooops... at %s (%d) Data type mismatch. Field name: %s (%d != %d)", __FILE__, __LINE__,
+            cmd_field->name, cmd_field->type, cfg_param.type());
             return -1;
         }
         return 0;
     }
     case CFT_REF: {
         if (cfg_param.is_object()) {
-            // cmd_field->v.dbl = cfg_param.number_value();
             tflow_cmd_field_t* cmd_sub_fields = cmd_field->v.ref;
             if (cmd_sub_fields) {
                 return setCmdFields(cmd_sub_fields, cfg_param.object_items());
             }
         }
         else {
+            g_critical("Ooops... at %s (%d) Data type mismatch. Field name: %s (%d != %d)", __FILE__, __LINE__,
+            cmd_field->name, cmd_field->type, cfg_param.type());
             return -1;
         }
         return 0;
     }
     default:
-        g_info("Ooops... at %s (%d) Data type mismatch. Field name: %s (%d != %d)", __FILE__, __LINE__,
+        g_critical("Ooops... at %s (%d) Data type mismatch. Field name: %s (%d != %d)", __FILE__, __LINE__,
             cmd_field->name, cmd_field->type, cfg_param.type());
     }
 
@@ -149,7 +168,7 @@ int TFlowCtrl::setField(tflow_cmd_field_t* cmd_field, const Json& cfg_param)
 }
 
 int TFlowCtrl::parseConfig(
-    tflow_cmd_t* config_cmd, const std::string& cfg_fname, const std::string& raw_cfg_default)
+    tflow_cmd_t *config_cmd_in, const std::string &cfg_fname, const std::string &raw_cfg_default)
 {
     struct stat sb;
     int cfg_fd = -1;
@@ -162,7 +181,7 @@ int TFlowCtrl::parseConfig(
         g_warning("Can't open configuration file %s", cfg_fname.c_str());
         use_default_cfg = true;
     }
-    else if (!S_ISREG(sb.st_mode)) {
+    else if (!((sb.st_mode & S_IFREG) == S_IFREG)) {
         g_warning("Config name isn't a file %s", cfg_fname.c_str());
         use_default_cfg = true;
     }
@@ -187,30 +206,51 @@ int TFlowCtrl::parseConfig(
             }
             else {
                 std::string s_msg = json_cfg.dump();
-                g_critical("Config: %s", s_msg.c_str());
+                g_info("Config: %s", s_msg.c_str());
 
             }
         }
         free(raw_cfg);
         close(cfg_fd);
     }
+    else {
+        g_warning("Use default built-in config");
+    }
 
-    if (use_default_cfg) {
-        std::string err;
-        json_cfg = Json::parse(raw_cfg_default.c_str(), err);
-        if (!err.empty()) {
-            g_error("Can't parse default config");
-            return -1;  // won't hit because of g_error
+    int rc = 0;
+    do {
+        // In case of user configuration fail, the loop will retry 
+        // with default configuration
+        tflow_cmd_t* config_cmd = config_cmd_in;
+        if (use_default_cfg) {
+            std::string err;
+            json_cfg = Json::parse(raw_cfg_default.c_str(), err);
+            if (!err.empty()) {
+                g_error("Can't json parse default config");
+                return -1;  // won't hit because of g_error. Default config should never fail.
+            }
         }
-    }
 
-    // Top level processing 
-    while (config_cmd->fields) {
-        int rc = setCmdFields(config_cmd->fields, json_cfg[config_cmd->name]);
-        if (rc) return -1;
-        config_cmd++;
-    }
-    return 0;
+        // Top level processing 
+        while (config_cmd->fields) {
+            int rc = setCmdFields(config_cmd->fields, json_cfg[config_cmd->name]);
+            if (rc) return -1;
+            config_cmd++;
+        }
+
+        if (rc) {
+            g_critical("Can't parse config %s",
+                (use_default_cfg == 0) ? "- try to use default config" : "- default fail");
+            if (use_default_cfg) {
+                g_error("Can't parse default config");
+                return -1;  // won't hit because of g_error. Default config should never fail.
+            }
+            use_default_cfg = 1; // Try to use default.
+        }
+
+    } while (rc);
+
+    return rc;
 }
 
 void TFlowCtrl::setFieldStr(tflow_cmd_field_t* f, const char* value)

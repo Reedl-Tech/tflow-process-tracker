@@ -7,11 +7,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/gapi.hpp>
 
-#if OFFLINE_TRACKER
-#include "tflow-tracker-cfg.hpp"
-#else 
 #include "tflow-ctrl-process.hpp"
-#endif
 
 namespace draw = cv::gapi::wip::draw;
 
@@ -78,21 +74,18 @@ public:
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     };
 
-
     TFlowPerfMon(const struct cfg_tflow_perfmon* cfg);
 
     void tickStart();
     void tickStop();
     void Render(std::vector<draw::Prim>& prims);
-//    void init_processed_frame_delay(struct timeval* frame_ts);
-//    void set_processed_frame_delay();
     const struct cfg_tflow_perfmon* cfg;
 
 
     static struct timespec diff_timespec(const struct timespec* time1, const struct timespec* time0);
     static double diff_timespec_msec(const struct timespec* time1, const struct timespec* time0);
 
-//    std::vector<cv::gapi::wip::draw::Prim> prims;
+    cv::Point2i lbl_ancor;
 
 private:
     clock_t clock_start;
@@ -104,5 +97,4 @@ private:
     TFlowMovAvg<clock_t> avg_load { 8 };
     TFlowMovAvg<double> avg_fps { 8 };
 
-    cv::Point2i lbl_ancor;
 };

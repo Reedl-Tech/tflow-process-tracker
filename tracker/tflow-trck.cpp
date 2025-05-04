@@ -19,6 +19,7 @@
 #include <opencv2/gapi.hpp>
 #include <opencv2/gapi/render.hpp>
 
+#include <json11.hpp>
 
 #include "../tflow-process.hpp"  // for TFlowBufPck
 #include "../tflow-ctrl-process.hpp"
@@ -28,13 +29,11 @@
 
 using namespace cv;
 using namespace std;
+using namespace json11;
 
 namespace draw = cv::gapi::wip::draw;
 
-TFlowAlgo* TFlowProcess::createAlgoInstance(std::vector<cv::Mat>& _in_frames, const TFlowCtrl::tflow_cmd_field_t *cfg)
-{
-    return new TFlowTracker(in_frames, (TFlowTrackerCfg::cfg_tracker*)cfg->v.ref);
-}
+TFlowTrackerCfg tflow_trck_cfg;
 
 #define ATIC320_9p1mm   0
 #define TWIN412_9p1mm   0
@@ -517,9 +516,10 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
     perf_mon.tickStop();
 
     // Debug & dashboard rendering
+    dashboard.addCamFrame(frame_curr);      // Copy frame into the dashboard
+
     dashboardUpdate();
 
-    dashboard.addCamFrame(frame_curr);      // Copy frame into the dashboard
     RenderDebugInfo(dashboard.frameCam);    // Render Algo specific debug info over the frame
 
     dashboard.render();
@@ -530,39 +530,23 @@ void TFlowTracker::onRewind()
     CleanUp();
 }
 
-void TFlowTracker::getDashboardFrameSize(float* w, float* h)
+int TFlowTracker::onConfig(const json11::Json& j_in_params, json11::Json::object& j_out_params)
 {
-    if (w && h) {
-        *w = dashboard.frameMain.cols; // dashboard.frame_size.width;
-        *h = dashboard.frameMain.rows; // dashboard.frame_size.height;
-    }
-}
+    // Is the new file name exist ?
+    if (j_in_params["reset"].is_number()) {
 
-void TFlowTracker::getDashboardFrameBuff(const uint8_t **buff, size_t *buff_len)
-{
-    if (buff && buff_len) {
-        *buff = dashboard.frameMain.datastart;
-        *buff_len = dashboard.frameMain.dataend - dashboard.frameMain.datastart;
+        int reset_act = j_in_params["reset"].int_value();
+        if (reset_act) {
+            onRewind();
+        }
     }
-}
 
-void TFlowTracker::initDashboardFrame()
-{
-    if (dashboard.frameMain.empty()) {
-        dashboard.frameMain = Mat(dashboard.frame_size, CV_8UC3);
+    const Json j_dashboard = j_in_params["dashboard"];
+    if (j_dashboard.is_object()) {
+        dashboard.onConfig(j_dashboard, j_out_params);
     }
-    dashboard.frameMain = 0;
-}
 
-void TFlowTracker::initDashboardFrame(uint8_t* data_ptr)
-{
-    if (data_ptr) {
-        dashboard.frameMain = Mat(dashboard.frame_size, CV_8UC3, data_ptr);
-        dashboard.frameMain = 0;
-    }
-    else {
-        dashboard.frameMain = Mat();
-    }
+    return 0;
 }
 
 TFlowBufPck::pck& TFlowTracker::getMsg(int* msg_len)
@@ -605,6 +589,8 @@ void TFlowTracker::RenderDebugInfo(Mat& frame)
 
     perf_mon.Render(prims);
     //gftt.RenderGFTT(prims);
+
+    dashboard.renderGrid(prims);
 
     draw::render(frame, prims);
 }

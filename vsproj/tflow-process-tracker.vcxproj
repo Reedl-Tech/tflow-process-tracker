@@ -98,7 +98,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <OutDir />
     <RemoteDeployDir />
-    <NMakeIncludeSearchPath>..\;.\;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot-native\usr\include;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\c++\12.3.0;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\lib\glib-2.0\include;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\lib\sigc++-2.0\include;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\lib\giomm-2.4\include;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\lib\glibmm-2.4\include;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\blkid;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\sigc++-2.0;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\giomm-2.4;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\gio-unix-2.0;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\glib-2.0;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\glibmm-2.4;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\gstreamer-1.0;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\libmount;C:\MyWorks\tflow-sdk\ucm-imx8mp-staging\recipe-sysroot\usr\include\opencv4</NMakeIncludeSearchPath>
+    <NMakeIncludeSearchPath>.\;..\;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot-native\usr\include;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include\blkid;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include\giomm-2.4;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include\gio-unix-2.0;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include\glib-2.0;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include\glibmm-2.4;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include\gstreamer-1.0;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include\libmount;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include\sigc++-2.0;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\lib\giomm-2.4\include;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\lib\glib-2.0\include;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\lib\glibmm-2.4\include;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\lib\sigc++-2.0\include;C:\MyWorks\LKD\ucm-imx8mp-staging\recipe-sysroot\usr\include\opencv4</NMakeIncludeSearchPath>
     <NMakeForcedIncludes>buildin.h;$(NMakeForcedIncludes)</NMakeForcedIncludes>
     <RemoteBuildCommandLine>pwd &amp;&amp; ./build.sh compile</RemoteBuildCommandLine>
     <RemoteCleanCommandLine>pwd &amp;&amp; ./build.sh cleanstate</RemoteCleanCommandLine>
@@ -118,10 +118,10 @@
     <ClCompile Include="..\tflow-render.cpp" />
     <ClCompile Include="..\tflow-streamer.cpp" />
     <ClCompile Include="..\tflow-tracelog.cpp" />
-    <ClCompile Include="..\tracker\tflow-trck-cfg.cpp" />
     <ClCompile Include="..\tracker\tflow-trck-dashboard.cpp" />
     <ClCompile Include="..\tracker\tflow-trck-feature.cpp" />
     <ClCompile Include="..\tracker\tflow-trck-gftt.cpp" />
+    <ClCompile Include="..\tracker\tflow-trck-if.cpp" />
     <ClCompile Include="..\tracker\tflow-trck.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -150,6 +150,7 @@
     <ClInclude Include="..\tracker\tflow-trck-gftt.hpp" />
     <ClInclude Include="..\tracker\tflow-trck-imu.hpp" />
     <ClInclude Include="..\tracker\tflow-trck.hpp" />
+    <ClInclude Include="buildin.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\.gitignore" />
@@ -165,7 +166,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">
     <PostBuildEvent>
-      <Command>pscp $(OutDir)tflow-process-tracker root@ucm-imx8m-plus:/home/root</Command>
+      <Command>pscp $(OutDir)tflow-process-tracker root@bubo-bubo-001:/home/root</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

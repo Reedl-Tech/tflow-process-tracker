@@ -3,6 +3,8 @@
 #define UBUNTU 0
 #define YOCTO 1
 
+#define _WIN32 1
+
 #if UBUNTU
 #define __SSP_STRONG__ 3
 #define __DBL_MIN_EXP__ (-1021)

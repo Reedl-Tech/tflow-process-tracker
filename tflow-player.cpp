@@ -1,3 +1,7 @@
+// TODO:
+//    While playback the maximum achived rate is 30Hz despite the processor load
+//    Probably need to switch execution from timer to an event or try to  tune
+//    idle loop/ thread priority/affinity if possible
 #include <features.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,15 +16,21 @@
 #include <ctime>
 #include <iostream>
 #include <functional>
+#include <regex>
 
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/stat.h> /* For mode constants */
 #include <sys/types.h>
 
+#include <dirent.h>
 #include <glibmm.h>
 #include <glib-unix.h>
 
+#include <json11.hpp>
+
+using namespace json11;
 using namespace std;
 
 #define IDLE_INTERVAL_MSEC 100
@@ -36,6 +46,9 @@ int MJPEGCapture::rewind(int frame_num)
 
     fpos_t new_pos = frame_offset_map.at(frame_num);
     fsetpos(f, &new_pos);
+
+    curr_frame = frame_num;
+
     return 0;
 }
 
@@ -127,6 +140,8 @@ int MJPEGCapture::decompressNext(int buff_idx, int *error)
     }
     jpeg_finish_decompress(&cinfo);
 
+    curr_frame++;
+
     *error = 0;
 
     return 0;
@@ -152,6 +167,7 @@ void MJPEGCapture::setupRowPointers(int buff_idx, uint8_t *buf)
 MJPEGCapture::MJPEGCapture()
 {
     frames_count = 0;
+    curr_frame = -1;
 
     width = -1;
     height = -1;
@@ -351,17 +367,12 @@ TFlowPlayer::TFlowPlayer(TFlowProcess* _app, MainContextPtr _context,
     frame_width = -1;
     frame_height = -1;
     frame_format = -1;       // 4c V4L2_PIX_FMT_GREY
-    curr_frame = -1;
 
     last_error = 0;
     pending_response = 0;
 
     frames_tbl = nullptr;
-
-    if (curr_state == nullptr) {
-        setCurrentState(off_str);
-    }
-
+    setCurrentState(off_str);
 }
 
 int TFlowPlayer::sendRedeem(int buff_idx)
@@ -373,28 +384,138 @@ int TFlowPlayer::sendRedeem(int buff_idx)
 void TFlowPlayer::onAction(ACTION action)
 {
 
-    if (action == ACTION_PAUSE) {
-        stopFPSTimer();
+    if (action == ACTION::PAUSE) {
         setCurrentState(pause_str);
+        stopFPSTimer();
     }
 
-    if (action == ACTION_PLAY) {
+    if (action == ACTION::PLAY) {
+        setCurrentState(play_str);
         stopFPSTimer();
         startFPSTimer();
-        setCurrentState(play_str);
     }
 
-    if (action == ACTION_STEP) {
+    if (action == STEP) {
+        setCurrentState(pause_str);
         stopFPSTimer();
         stepFPSTimer();
-        setCurrentState(pause_str);
     }
 
 }
 
-void TFlowPlayer::onDir(const char* curr_dir)
+int TFlowPlayer::onDir(const json11::Json& j_in_params, json11::Json::object& j_out_params)
 {
-    // Replay back with current directory content
+#if !(OFFLINE_PROCESS)
+
+    DIR* dp;
+    struct dirent* dirp;
+    std::vector<Json::object> dir_entries;
+
+    const Json j_params = j_in_params;
+    std::string s_msg = j_params.dump();
+
+    const Json j_path = j_in_params["path"];
+    if (!j_path.is_string()) {
+        // No directory? Consider the root or return an error?
+        j_out_params.emplace("error", "Path not specified");
+        return -1;
+    }
+    j_out_params.emplace("path", j_path.string_value());
+
+    const Json j_mask = j_in_params["mask"];
+    string file_mask;
+
+    if (!j_mask.is_string()) {
+        // Mask is optional
+    }
+    else {
+        file_mask = j_mask.string_value().c_str();
+        j_out_params.emplace("mask", j_mask.string_value());
+    }
+    
+    const char *del_me = j_path.string_value().c_str();
+
+    dp = opendir(j_path.string_value().c_str());
+    if (NULL == dp) {
+        j_out_params.emplace("error", "Can't open path");
+        return -1;
+    }
+
+    std::regex thumbnail_regex(".*thmb$",
+        std::regex_constants::grep  | 
+        std::regex_constants::icase |
+        std::regex_constants::nosubs);
+
+    std::regex file_mask_regex(file_mask, 
+        std::regex_constants::grep  | 
+        std::regex_constants::icase |
+        std::regex_constants::nosubs);
+
+    while (errno = 0, (dirp = readdir(dp)) != NULL) {
+            
+        struct stat st;
+        const std::string full_entry_path = j_path.string_value() + std::string(dirp->d_name);
+        Json::object j_entry;
+        std::cmatch thumb_match;
+
+        // Ignore system files and directories
+        if (dirp->d_name[0] == '.') continue;
+
+        // Ignore thumbnails
+        if (std::regex_match(dirp->d_name, thumb_match, thumbnail_regex)) continue;
+
+        if (dirp->d_type == DT_REG) {
+            std::cmatch file_mask_match;
+                
+            if (!file_mask.empty() && 
+                !std::regex_match(dirp->d_name, file_mask_match, file_mask_regex)) {
+                continue;
+            }
+ 
+            j_entry.emplace("name", dirp->d_name); // Max len 256
+
+            if (stat(full_entry_path.c_str(), &st)) {
+                j_entry.emplace("type", "err");
+                continue;
+            } 
+
+            j_entry.emplace("type", "file");
+            j_entry.emplace("date", (int)st.st_mtim.tv_sec);
+            j_entry.emplace("size", (int)st.st_size);
+
+            const std::string full_thmb_path = full_entry_path + std::string(".thmb");
+
+            if (!stat(full_thmb_path.c_str(), &st) && 
+                (st.st_mode & (S_IFREG | S_IFLNK))) {
+                j_entry.emplace("thmb", full_thmb_path);
+            }
+
+        } 
+        else if (dirp->d_type == DT_DIR) {
+
+            j_entry.emplace("name", dirp->d_name); // Max len 256
+            j_entry.emplace("type", "dir");
+            const std::string full_dir_thmb_path = full_entry_path + std::string("/.thmb");
+
+            if (!stat(full_dir_thmb_path.c_str(), &st) && 
+                (st.st_mode & (S_IFREG | S_IFLNK))) {
+                j_entry.emplace("thmb", full_dir_thmb_path);
+            }
+        }
+        dir_entries.push_back(j_entry);
+    }
+    closedir(dp);
+        
+    if (errno) {
+        j_out_params.emplace("error", "Can't read dir entry");
+    }
+
+    if (dir_entries.size()) {
+        j_out_params.emplace("items", dir_entries);
+    }
+
+#endif
+    return 0;
 }
 
 void TFlowPlayer::onTickOnce() {
@@ -421,7 +542,8 @@ bool TFlowPlayer::onTick()
 
     if (free_buff_idx == -1) {
         // No more free buffers - nothing to do.
-        return 0;
+        g_warning("No more free buffers");
+        return G_SOURCE_REMOVE;
     }
 
     /*
@@ -452,7 +574,7 @@ bool TFlowPlayer::onTick()
             player_state_flag.v = Flag::FALL;
         }
         else {
-            onAction(ACTION_PAUSE);
+            onAction(PAUSE);
         }
         return G_SOURCE_REMOVE;       
     }
@@ -465,18 +587,19 @@ bool TFlowPlayer::onTick()
     sp_pck->d.consume.ts.tv_sec = tp.tv_sec;
     sp_pck->d.consume.ts.tv_usec = tp.tv_nsec / 1000;
 
-    curr_frame++;
+    // TODO: Q: Do we need to preserve current position in config? Why?
+    // app->ctrl.cmd_flds_cfg_player.curr_frame.v.num = mjpegCapture.curr_frame;
 
-    // TODO: Split current frame in player and one received from config?
-    app->ctrl.cmd_flds_cfg_player.curr_frame.v.num = curr_frame;
-
-#if SRC_PLAYER
     app->onFrame(sp_pck);
-#endif
 
-    // Upon sp_pck.reset, if no other object held the packet the
-    // Redeem requst willbe sent from the packet destructor. 
+    // Upon sp_pck.reset, if no other object held the packet the Redeem request
+    // will be sent from the packet destructor. 
     sp_pck.reset();
+
+    if (cfg->playback_speed.v.dbl == -1 && is_play_state()) {
+        // Process next frame ASAP
+        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce));
+    }
 
     return G_SOURCE_CONTINUE;
 }
@@ -537,8 +660,6 @@ int TFlowPlayer::Init(const char* media_file_name)
 
     frames_count = mjpegCapture.frames_count - offset_frame;
 
-    curr_frame = 0;
-
     res = framesAlloc();
     if (res) {
         last_error = -100500;
@@ -552,10 +673,10 @@ int TFlowPlayer::Init(const char* media_file_name)
     }
 
     if (is_play_state()) {
-        onAction(ACTION_PLAY);
+        onAction(ACTION::PLAY);
     }
     else {
-        onAction(ACTION_STEP);
+        onAction(ACTION::STEP);
     }
 
     return 0;
@@ -574,19 +695,25 @@ void TFlowPlayer::stepFPSTimer()
 
 void TFlowPlayer::startFPSTimer()
 {
-    double fps = cfg->fps.v.dbl;
+    double speed = cfg->playback_speed.v.dbl;
+    double frame_rate = getFrameRate();
     
-    if (fps != 0) {
-        int fps_interval_ms = (int)roundf(1 / fps * 1000.f);
+    if (speed == -1) {
+        // Procees ASAP
+        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce));
+        stopFPSTimer();
+    }
+    else {
+        assert(!fps_tick_src);
+
+        // Proceed in real time pace with coefficient
+        int fps_interval_ms = (int)roundf(1 / frame_rate * 1000.f / speed);
         fps_tick_src = Glib::TimeoutSource::create(fps_interval_ms);            // TODO: Create once. Reuse on PLAY/PAUSE
         fps_tick_src->connect(sigc::mem_fun(*this, &TFlowPlayer::onTick));
         fps_tick_src->attach(context);
     }
-    else {
-        stepFPSTimer();
     }
 
-}
 bool TFlowPlayer::onIdle(struct timespec now_ts)
 {
     // Check ctrl actions - start/step/reset
@@ -612,10 +739,10 @@ bool TFlowPlayer::onIdle(struct timespec now_ts)
             player_state_flag.v = Flag::FALL;
         }
         else {
-            setCurrentState(pause_str);
-
             player_state_flag.v = Flag::SET;
-            // app->onSrcReadyPlayer();
+            app->onSrcReadyPlayer();
+
+            setCurrentState(pause_str);
 
             /* Note: In case of Streamer reuse existing fifo for
              *       different Tflow Capture connection (for ex. Capture was
@@ -658,9 +785,10 @@ bool TFlowPlayer::onIdle(struct timespec now_ts)
 
 void TFlowPlayer::Deinit()
 {
+    stopFPSTimer();
+
     mjpegCapture.clean();
 
-    stopFPSTimer();
     setCurrentState(off_str);
 
     if (frames_tbl) {
@@ -675,7 +803,7 @@ void TFlowPlayer::Deinit()
 
 TFlowPlayer::~TFlowPlayer()
 {
-    stopFPSTimer();
+    //stopFPSTimer();
 
     Deinit();
 }

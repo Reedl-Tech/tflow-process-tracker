@@ -56,14 +56,23 @@ private:
 
 public:
 
-    /* TFlow Algo overrides*/
+    /* ======== TFlow Algo overrides ========= */
     void onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in);       // Main entry point
     void onRewind();                                            // Called on player rewind
     TFlowBufPck::pck& getMsg(int* msg_len);                     // Returns the message to send back.
-    void getDashboardFrameSize(float* w, float* h);
-    void getDashboardFrameBuff(const uint8_t **buff, size_t *buff_len);
-    void initDashboardFrame();                                  // Create/Init Dashboard frame locally
-    void initDashboardFrame(uint8_t* data_ptr);                 // Create/Init Dashboard from provided data buffer.
+
+    /* Dashboard specific Algo overrides */
+    void getDashboardFrameSize(float* w, float* h)
+        { dashboard.getDashboardFrameSize(w, h); };
+    void getDashboardFrameBuff(const uint8_t** buff, size_t* buff_len)
+        { dashboard.getDashboardFrameBuff(buff, buff_len); };
+    void initDashboardFrame() 
+        { dashboard.initDashboardFrame(); };                    // Create/Init Dashboard frame locally
+    void initDashboardFrame(uint8_t* data_ptr) 
+        { dashboard.initDashboardFrame(data_ptr); };            // Create/Init Dashboard from provided data buffer.
+
+    int onConfig(const json11::Json& j_in_params, json11::Json::object& j_out_params);
+    /* ======================================= */
 
     static constexpr int TFLOWBUF_MSG_CUSTOM_TRACKER = (TFlowBufPck::TFLOWBUF_MSG_CUSTOM_ + 1);    // 0x81
 

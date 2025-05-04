@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cassert>
 #include <vector>
+#include <string.h>
 
 #if _WIN32
 #include <windows.h>
@@ -13,7 +14,9 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/gapi.hpp>
 #include <opencv2/gapi/render.hpp>
+#include <json11.hpp>
 
+using namespace json11;
 using namespace cv;
 namespace draw = cv::gapi::wip::draw;
 
@@ -52,6 +55,12 @@ TFlowTrackerDashboard::TFlowTrackerDashboard(const TFlowTrackerCfg::cfg_trck_das
 {
     cfg = _cfg;
     frameMain = Mat();               // Realocates Mat (wraps shared memory) on each frame
+    
+    // If grid is in use, we have to convert input image to the selected target 
+    // foramt in a dedicated buffer and then scale to the target dashboard buffer.
+    // TODO: consider NV21 target buffer format
+    frameCam = Mat(frame_size, CV_8UC3);
+
     instr_prims.reserve(1000);
 
     compassInitRender();
@@ -66,7 +75,9 @@ void TFlowTrackerDashboard::addCamFrame(const Mat& frameBW)
         return;
     }
 
-    frameCam = frameMain(Rect(4, 4, frameBW.cols, frameBW.rows));
+    if (frameCam.empty()) {
+        frameCam = frameMain(Rect(4, 4, frameBW.cols, frameBW.rows));
+    }
 
     cv::cvtColor(frameBW, frameCam, COLOR_GRAY2BGR);
 }
@@ -427,14 +438,20 @@ void TFlowTrackerDashboard::render()
 {
     if (frameMain.empty()) return;
 
+
+
+#if 0
     if (instr_refresh) {
         instr_refresh = 0;
 
         instr_prims.clear();
         instrRender();
     }
+#endif
 
     draw::render(frameMain, instr_prims);
+    renderCamZoom();
+
 #if OFFLINE_TRACKER
     cv::imshow(TFLOW_TRCK_DASH_WIN, frameMain);
 #else
@@ -458,3 +475,227 @@ void TFlowTrackerDashboard::instrRender()
     instrRenderAltitude(instr_prims, center1, (float)imu.altitude_baro);
 }
 
+void TFlowTrackerDashboard::getDashboardFrameSize(float* w, float* h)
+{
+    if (w && h) {
+        *w = frameMain.cols; // dashboard.frame_size.width;
+        *h = frameMain.rows; // dashboard.frame_size.height;
+    }
+}
+
+void TFlowTrackerDashboard::getDashboardFrameBuff(const uint8_t **buff, size_t *buff_len)
+{
+    if (buff && buff_len) {
+        *buff = frameMain.datastart;
+        *buff_len = frameMain.dataend - frameMain.datastart;
+    }
+}
+
+void TFlowTrackerDashboard::initDashboardFrame()
+{
+    if (frameMain.empty()) {
+        frameMain = Mat(frame_size, CV_8UC3);
+    }
+    frameMain = 0;
+}
+
+void TFlowTrackerDashboard::initDashboardFrame(uint8_t* data_ptr)
+{
+    if (data_ptr) {
+        frameMain = Mat(frame_size, CV_8UC3, data_ptr);
+        frameMain = 0;
+    }
+    else {
+        frameMain = Mat();
+    }
+}
+
+static void drawGrid(const cv::Rect2f &rect2f, const cv::Scalar &color, vector<draw::Prim>& prims) {
+
+    int w = (int)lround(rect2f.width);
+    int h = (int)lround(rect2f.height);
+    int sw = (int)lround(rect2f.width  / 3);
+    int sh = (int)lround(rect2f.height / 3);
+    int x = (int)rect2f.x;
+    int y = (int)rect2f.y;
+
+    prims.emplace_back(draw::Line{
+        {x + sw, y},
+        {x + sw, y + h},
+        color, 1} );
+
+    prims.emplace_back(draw::Line{
+        {x + 2*sw, y},
+        {x + 2*sw, y + h},
+        color, 1} );
+
+    prims.emplace_back(draw::Line{
+        {x,     y + sh},
+        {x + w, y + sh},
+        color, 1} );
+
+    prims.emplace_back(draw::Line{
+        {x,     y + 2*sh},
+        {x + w, y + 2*sh},
+        color, 1} );
+}
+
+void TFlowTrackerDashboard::renderCamZoom()
+{
+    Rect dashboard_cam = Rect (0, 0, frameCam.cols, frameCam.rows);
+
+    Mat frameZoomSrc = frameCam(grid_sector);
+    Mat frameZoomDst;
+    if (grid_zoom_step > 0) {
+        Point2f src_tl = grid_sector.tl();
+        Point2f src_br = grid_sector.br();
+        Point2f dst_tl = dashboard_cam.tl();
+        Point2f dst_br = dashboard_cam.br();
+        auto tl = src_tl - ((src_tl - dst_tl) / grid_zoom_step);
+        auto br = src_br - ((src_br - dst_br) / grid_zoom_step);
+        
+        grid_zoom_step--;
+        frameZoomDst = frameMain(Rect(tl, br));
+    }
+    else {
+        frameZoomDst = frameMain(dashboard_cam);
+    }
+
+    cv::resize(frameZoomSrc, frameZoomDst, frameZoomDst.size());
+}
+
+void TFlowTrackerDashboard::renderGrid(vector<draw::Prim>& prims)
+{
+    // Draw grid
+    // draw top level get rect
+    static const float sh = 1.f / 3;
+    static const float sw = 1.f / 3;
+    static vector<const cv::Scalar *> colors = {&viol, &blue, &red};
+    static const Point2f sect[10] = { 
+        {0, 0}, // not used
+        {0*sw, 0*sh},       {sw, 0*sh},      {2*sw, 0*sh},
+        {0*sw, 1*sh},       {sw, 1*sh},      {2*sw, 1*sh},
+        {0*sw, 2*sh},       {sw, 2*sh},      {2*sw, 2*sh},
+    };
+
+    Rect2f s0(0, 0, (float)frameCam.cols, (float)frameCam.rows);
+    Rect2f &s = s0;
+    drawGrid(s, red, prims);
+
+    grid_sector = s0;
+    auto it_sector = grid_sectors_idx.begin();
+    auto it_color = colors.begin();
+    
+    while (it_sector != grid_sectors_idx.end()) {
+        int sect_idx = *it_sector++;
+        const cv::Scalar &color = *(*it_color++);
+        if (it_color == colors.end()) it_color = colors.begin();
+        if (sect_idx == 0) break;
+        grid_sector.x = s.x + (sect[sect_idx].x * s.width);
+        grid_sector.y = s.y + (sect[sect_idx].y * s.height);
+        grid_sector.width  = sw * s.width;
+        grid_sector.height = sh * s.height;
+        drawGrid(grid_sector, color, prims);
+        s = grid_sector;        
+    }
+
+    // Apply sector boundary extension
+    if (grid_sector_ext > 0) {
+        float dx = (grid_sector.width * grid_sector_ext / 100);
+        float dy = (grid_sector.height * grid_sector_ext / 100);
+        grid_sector.x -= dx / 2;
+        grid_sector.y -= dy / 2;
+        grid_sector.width += dx;
+        grid_sector.height += dy;
+
+    }
+    else {
+        grid_sector.x -= 1;
+        grid_sector.y -= 1;
+        grid_sector.width += 2;
+        grid_sector.height += 2;
+    }
+    // Limit to CamFrame        
+    if (grid_sector.x < 0) grid_sector.x = 0;
+    if (grid_sector.y < 0) grid_sector.y = 0;
+
+    if (grid_sector.width + grid_sector.x > (float)frameCam.cols)
+        grid_sector.width = (float)frameCam.cols - grid_sector.x;
+
+    if (grid_sector.height + grid_sector.y > (float)frameCam.rows)
+        grid_sector.height = (float)frameCam.rows - grid_sector.y;
+}
+
+int TFlowTrackerDashboard::onConfigGrid(const std::string &grid_cfg)
+{
+    // <SS..>[+ZZ][*MMM] ]
+    // Where: 
+    //     S   -   sector
+    //     +ZZ -   zoom to full screen sector+ZZ%
+    //     *M  -   number of marks to follow.
+    // Ex.:
+    //   ""    - no grid, no zoom
+    //   0     - no zoom, grid only
+    // ???   1     - grid enabled square 1 highlighed
+    // ???   1+    - grid enabled square 1 highlighed and zoomed
+    // ???   14+   - the same, but zoomed 2nd level grid square
+    // ???   14+20 - follow marks 2 and 3 in sector 4 of sector 1
+
+
+    std::vector<int> *dst = &grid_sectors_idx;
+    std::vector<int> grid_zoom_temp;
+
+    const char *grid_cfg_str = grid_cfg.c_str();
+
+    // Sanity 
+    if (grid_cfg.length() > 10) return -1;
+
+    grid_sectors_idx.clear();
+    grid_sector_ext = 0;
+
+    while(grid_cfg_str) {
+        if (*grid_cfg_str == '*' ) {
+            grid_follow_marks.clear();
+            dst = &grid_follow_marks;    // switch parsing destination to marks
+            grid_cfg_str++;
+            continue;
+        }
+        if (*grid_cfg_str == '+' ) {
+            dst = &grid_zoom_temp;    // switch parsing destination to marks
+            grid_cfg_str++;
+            continue;
+        }
+        // get digit            
+        int digit = (int)(*grid_cfg_str - 0x30);
+        if (digit >= 0 && digit <= 9) {
+            dst->push_back(digit);
+        }
+        else {
+            // Not a digit
+            break;
+        }
+        grid_cfg_str++;
+    }
+
+    // Convert array of Zoom digits to integer. 
+    switch (grid_zoom_temp.size()) {
+    case 0: grid_sector_ext = 0; break;
+    case 1: grid_sector_ext = grid_zoom_temp.at(0); break;
+    default:
+        grid_sector_ext = grid_zoom_temp.at(0) * 10 + grid_zoom_temp.at(1);
+    }
+
+    grid_zoom_step = 5;
+    return 0;
+}
+
+void TFlowTrackerDashboard::onConfig(const json11::Json& j_in_params,
+    json11::Json::object& j_out_params)
+{
+    const Json j_grid = j_in_params["grid" ];
+    if (j_grid.is_string()) {
+        if (onConfigGrid(j_grid.string_value())) {
+            j_out_params.emplace("error", std::string("Bad grid format"));
+        }
+    }
+}

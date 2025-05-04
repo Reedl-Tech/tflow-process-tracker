@@ -105,14 +105,14 @@ bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
         }
 
         sck_state_flag.v = Flag::FALL;
-        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowBufCli::onIdle_no_ts));
-        return false;
+//AV!!!        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowBufCli::onIdle_no_ts));
+        return G_SOURCE_REMOVE;  
     }
 
     // Sanity
     if (iov[0].iov_len == 0) {
         g_warning("Oooops - Empty message");
-        return true;
+        return G_SOURCE_CONTINUE;
     }
 
     switch (sp_pck->d.hdr.id) {
@@ -124,7 +124,7 @@ bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
         g_warning("---TFlowBufCli: Received - CAM_FD");
         if (msg.msg_controllen == 0) {
             g_warning("Oooops - Bad aux data");
-            return false;
+            return G_SOURCE_CONTINUE;
         }
 
         struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
@@ -165,7 +165,7 @@ bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
         g_warning("Oooops - Unknown message received %d", sp_pck->d.hdr.id);
     }
 
-    return true;
+    return G_SOURCE_CONTINUE;
 }
 
 TFlowBufCli::TFlowBufCli(
@@ -248,7 +248,7 @@ int TFlowBufCli::sendMsg(TFlowBufPck::pck &msg, int msg_id, int msg_custom_len =
         }
         sck_state_flag.v = Flag::FALL;
 
-        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowBufCli::onIdle_no_ts));
+//AV!!!        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowBufCli::onIdle_no_ts));
         return -1;
     }
 
@@ -300,11 +300,9 @@ void TFlowBufCli::Disconnect()
     }
 
     if (sck_src) {
-        if (sck_src) {
             sck_src->destroy();
             sck_src.reset();
         }
-    }
     
     tflow_bufs.clear();
     if (cam_fd != -1) {
@@ -349,7 +347,9 @@ int TFlowBufCli::Connect()
 
     g_warning("---TFlowBufCli: Connected to the server %s", srv_name.c_str());
 
-    Glib::signal_io().connect(sigc::mem_fun(*this, &TFlowBufCli::onMsg), sck_fd, Glib::IOCondition::IO_IN);
+    sck_src = Glib::IOSource::create(sck_fd, (Glib::IOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP));
+    sck_src->connect(sigc::mem_fun(*this, &TFlowBufCli::onMsg));
+    sck_src->attach(context);
 
     return 0;
 }
