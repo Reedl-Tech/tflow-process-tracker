@@ -106,6 +106,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ClCompile Include="..\main.cpp" />
+    <ClCompile Include="..\tflow-btc.cpp" />
     <ClCompile Include="..\tflow-buf-cli.cpp" />
     <ClCompile Include="..\tflow-buf-srv.cpp" />
     <ClCompile Include="..\tflow-ctrl-cli-port.cpp" />
@@ -115,6 +116,7 @@
     <ClCompile Include="..\tflow-perfmon.cpp" />
     <ClCompile Include="..\tflow-player.cpp" />
     <ClCompile Include="..\tflow-process.cpp" />
+    <ClCompile Include="..\tflow-pwm.cpp" />
     <ClCompile Include="..\tflow-render.cpp" />
     <ClCompile Include="..\tflow-streamer.cpp" />
     <ClCompile Include="..\tflow-tracelog.cpp" />
@@ -126,6 +128,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\tflow-algo.hpp" />
+    <ClInclude Include="..\tflow-btc.hpp" />
     <ClInclude Include="..\tflow-buf-cli.hpp" />
     <ClInclude Include="..\tflow-buf-pck.hpp" />
     <ClInclude Include="..\tflow-buf-srv.hpp" />
@@ -133,6 +136,7 @@
     <ClInclude Include="..\tflow-build-cfg.hpp" />
     <ClInclude Include="..\tflow-common.hpp" />
     <ClInclude Include="..\tflow-ctrl-cli-port.hpp" />
+    <ClInclude Include="..\tflow-ctrl-process-ui.hpp" />
     <ClInclude Include="..\tflow-ctrl-process.hpp" />
     <ClInclude Include="..\tflow-ctrl-srv-process.hpp" />
     <ClInclude Include="..\tflow-ctrl-srv.hpp" />
@@ -141,6 +145,7 @@
     <ClInclude Include="..\tflow-perfmon.hpp" />
     <ClInclude Include="..\tflow-player.hpp" />
     <ClInclude Include="..\tflow-process.hpp" />
+    <ClInclude Include="..\tflow-pwm.hpp" />
     <ClInclude Include="..\tflow-render.hpp" />
     <ClInclude Include="..\tflow-streamer.hpp" />
     <ClInclude Include="..\tflow-tracelog.hpp" />

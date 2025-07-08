@@ -76,7 +76,12 @@ int MJPEGCapture::decompressNext(int buff_idx, int *error)
         res = fread(&frame_info.sign + 1, sizeof(frame_info.v2) - sizeof(frame_info.sign), 1, f);
 
         // RT.2 contains IMU_v2. Read IMU data into the dedicated var.
-        res = fread(&in_imu_v2, 1, frame_info.v2.aux_data_len, f);
+        aux_data_len = frame_info.v2.aux_data_len;
+        if (frame_info.v2.aux_data_len > 0) {
+            assert(sizeof(aux_data_in) < frame_info.v2.aux_data_len );
+            res = fread(&aux_data_in, 1, frame_info.v2.aux_data_len, f);
+        }
+#if 0
         if (*(uint32_t*)&in_imu_v2.sign == 0x32554D49) {              // IMU2 => IMU_v2
             if (frame_info.v2.aux_data_len != sizeof(in_imu_v2)) {
                 g_warning("Bad IMUv2 len %d, %ld expected\r\n", 
@@ -84,10 +89,18 @@ int MJPEGCapture::decompressNext(int buff_idx, int *error)
                 return -1;
             }
         }
+        else if (*(uint32_t*)&in_imu_v3.sign == 0x33554D49) {              // IMU2 => IMU_v2
+            if (frame_info.v2.aux_data_len != sizeof(in_imu_v3)) {
+                g_warning("Bad IMUv3 len %d, %ld expected\r\n", 
+                    frame_info.v2.aux_data_len, sizeof(in_imu_v3));
+                return -1;
+            }
+        }
         else {
             g_warning("Bad IMU data sign 0x%08X, IMU2 expected\r\n", in_imu_v2.sign);
             return -1;
         }
+#endif
 
         // Read the MJPEG frame
         jpeg_sz = frame_info.v2.jpeg_sz;
@@ -172,7 +185,7 @@ MJPEGCapture::MJPEGCapture()
     width = -1;
     height = -1;
     format = -1;
-    
+
     in_buff = nullptr;
     row_pointers = nullptr;
     f = nullptr;
@@ -202,6 +215,7 @@ void MJPEGCapture::clean()
     if (f) {
         fclose(f);
         f = nullptr;
+        fname.clear();
     }
 }
 
@@ -237,6 +251,7 @@ int MJPEGCapture::open(const std::string& fname, int _offset_frame)
     tflow_mjpeg_frame frame;
 
     frame_offset_map.reserve(20 * 60 * 60); // ~20mins at 60Hz
+    frame_offset_map.clear();
 
     f = fopen(fname.c_str(), "rb");
     if (!f) {
@@ -348,13 +363,21 @@ int MJPEGCapture::open(const std::string& fname, int _offset_frame)
     width  = _width;
     height = _height;
     format = _format;
-
+     
+    curr_frame = 0;
+    
     return 0;
 }
 
 TFlowPlayer::TFlowPlayer(TFlowProcess* _app, MainContextPtr _context, 
     const TFlowCtrlProcess::cfg_player* _cfg,
-    int _buffs_num)
+    int _buffs_num,
+    std::function<void(std::shared_ptr<TFlowBufPck> sp_pck)> _app_onFrame,
+    std::function<void()> _app_onSrcReady,
+    std::function<void()> _app_onSrcGone):    
+    app_onFrame(_app_onFrame),
+    app_onSrcReady(_app_onSrcReady),
+    app_onSrcGone(_app_onSrcGone)
 {
     context = _context;
     buffs_num = _buffs_num;
@@ -367,11 +390,12 @@ TFlowPlayer::TFlowPlayer(TFlowProcess* _app, MainContextPtr _context,
     frame_width = -1;
     frame_height = -1;
     frame_format = -1;       // 4c V4L2_PIX_FMT_GREY
-
+    
     last_error = 0;
     pending_response = 0;
 
     frames_tbl = nullptr;
+
     setCurrentState(off_str);
 }
 
@@ -433,7 +457,7 @@ int TFlowPlayer::onDir(const json11::Json& j_in_params, json11::Json::object& j_
         j_out_params.emplace("mask", j_mask.string_value());
     }
     
-    const char *del_me = j_path.string_value().c_str();
+    //const char *del_me = j_path.string_value().c_str();
 
     dp = opendir(j_path.string_value().c_str());
     if (NULL == dp) {
@@ -563,10 +587,16 @@ bool TFlowPlayer::onTick()
 
     rc = mjpegCapture.decompressNext(free_buff_idx, &last_error);
 
+#if 0
     // if (in_imu_v2.sign == xxx) 
     assert(sizeof(sp_pck->d.consume.aux_data) > sizeof(mjpegCapture.in_imu_v2));
     memcpy(&sp_pck->d.consume.aux_data[0], &mjpegCapture.in_imu_v2, sizeof(mjpegCapture.in_imu_v2));
     sp_pck->d.consume.aux_data_len = sizeof(mjpegCapture.in_imu_v2);
+#endif
+
+    assert(sizeof(sp_pck->d.consume.aux_data) > sizeof(mjpegCapture.aux_data_len));
+    memcpy(&sp_pck->d.consume.aux_data[0], &mjpegCapture.aux_data_len, mjpegCapture.aux_data_len);
+    sp_pck->d.consume.aux_data_len = mjpegCapture.aux_data_len;
 
     if (rc) {
         // -1 -> error or end of file
@@ -590,7 +620,7 @@ bool TFlowPlayer::onTick()
     // TODO: Q: Do we need to preserve current position in config? Why?
     // app->ctrl.cmd_flds_cfg_player.curr_frame.v.num = mjpegCapture.curr_frame;
 
-    app->onFrame(sp_pck);
+    app_onFrame(sp_pck);
 
     // Upon sp_pck.reset, if no other object held the packet the Redeem request
     // will be sent from the packet destructor. 
@@ -598,7 +628,7 @@ bool TFlowPlayer::onTick()
 
     if (cfg->playback_speed.v.dbl == -1 && is_play_state()) {
         // Process next frame ASAP
-        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce));
+        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce), Glib::PRIORITY_HIGH);
     }
 
     return G_SOURCE_CONTINUE;
@@ -672,12 +702,15 @@ int TFlowPlayer::Init(const char* media_file_name)
         mjpegCapture.setupRowPointers(i, frames_tbl[i].data);
     }
 
+/*
     if (is_play_state()) {
         onAction(ACTION::PLAY);
     }
     else {
         onAction(ACTION::STEP);
     }
+*/
+    onAction(ACTION::STEP);
 
     return 0;
 }
@@ -690,17 +723,17 @@ void TFlowPlayer::stopFPSTimer()
 }
 void TFlowPlayer::stepFPSTimer()
 {
-    Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce));
+    Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce), Glib::PRIORITY_HIGH);
 }
 
 void TFlowPlayer::startFPSTimer()
 {
     double speed = cfg->playback_speed.v.dbl;
     double frame_rate = getFrameRate();
-    
+
     if (speed == -1) {
         // Procees ASAP
-        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce));
+        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce), Glib::PRIORITY_HIGH);
         stopFPSTimer();
     }
     else {
@@ -708,11 +741,12 @@ void TFlowPlayer::startFPSTimer()
 
         // Proceed in real time pace with coefficient
         int fps_interval_ms = (int)roundf(1 / frame_rate * 1000.f / speed);
+        
         fps_tick_src = Glib::TimeoutSource::create(fps_interval_ms);            // TODO: Create once. Reuse on PLAY/PAUSE
         fps_tick_src->connect(sigc::mem_fun(*this, &TFlowPlayer::onTick));
         fps_tick_src->attach(context);
     }
-    }
+}
 
 bool TFlowPlayer::onIdle(struct timespec now_ts)
 {
@@ -728,19 +762,22 @@ bool TFlowPlayer::onIdle(struct timespec now_ts)
     if (player_state_flag.v == Flag::UNDEF || player_state_flag.v == Flag::RISE) {
         int rc;
 
-        if (!app->ctrl.player_fname_is_valid(cfg->file_name.v.str)) {   // !!!!
+        if (!player_fname_is_valid(cfg->file_name.v.str)) {   // !!!!
             player_state_flag.v = Flag::CLR;
             return G_SOURCE_CONTINUE;
             // TODO: Set player's note for UI?
         }
 
-        rc = Init(app->ctrl.player_fname_get());
+        rc = Init(player_fname_get());
         if (rc) {
             player_state_flag.v = Flag::FALL;
         }
         else {
             player_state_flag.v = Flag::SET;
-            app->onSrcReadyPlayer();
+            app_onSrcReady();
+#if CODE_BROWSE
+            TFlowProcess::onSrcReadyPlayer();
+#endif
 
             setCurrentState(pause_str);
 
@@ -756,7 +793,7 @@ bool TFlowPlayer::onIdle(struct timespec now_ts)
 //            app->fifo_streamer = new TFlowStreamer();
         }
         
-        // Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowBufCli::onIdle));
+        //Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowBufCli::onIdle));
         return G_SOURCE_CONTINUE;
     }
 
@@ -765,17 +802,22 @@ bool TFlowPlayer::onIdle(struct timespec now_ts)
         // TODO: Set player's note for UI?
 
         // Stop Algorithm and deinit everything
-        // app_onSrcGone();       //!!!!!!!!!!!!!!!!!!
+        app_onSrcGone();
+#if CODE_BROWSE
+            TFlowProcess::onSrcGone()
+#endif
+
         Deinit();
 
         // In case of file read error keep the Player down.
         // In case of file name changed - restart everything.
         player_state_flag.v = last_error ? Flag::CLR : Flag::RISE;
 
-        //if (app->fifo_streamer) {
-        //    delete app->fifo_streamer;
-        //    app->fifo_streamer = nullptr;
-        //}
+        // TODO: Q ??? Should it be part of TFlowProcess::onSrcGone() ???
+        if (app->fifo_streamer) {
+            delete app->fifo_streamer;
+            app->fifo_streamer = nullptr;
+        }
 
         return G_SOURCE_CONTINUE;
     }

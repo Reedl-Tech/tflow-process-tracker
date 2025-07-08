@@ -44,12 +44,15 @@ TFlowFeature::TFlowFeature(cv::Point2f pos_in, int _qlty_scores, int _id) : dbg_
 
     pyrlk_flow_err = 0.f;
 
-    is_sparced = 0;
+    is_sparsed = 0;
     is_out_of_fov = 0;
     is_not_found = 0;
+    is_preview = 0;
+    is_preview_sel = 0;
     is_new = 1;
     
-    id = _id & 0x3ff;
+    // id = _id & 0x3ff; on gray array new features may respawn very quickly and counter will wrap around
+    id = _id;
     
     sparse_protected = 0;
     sparse_del = 0;
@@ -65,7 +68,8 @@ int TFlowFeature::Update(cv::Point2f pos_new, unsigned char status)
         // TODO: ? Reduce features quality and probability ?
         //       ? Mark as quarantine?
         is_not_found = 1;
-        dbg_str.start("Velocity[%4d]:   --- not found---     ", id);
+        dbg_str.start("FeatUpdate[%4d%c]:   --- not found---     ", 
+            id, this->is_preview ? '\'' : ' ');
 
         if (pos_hist.size() > 0) {
             pos_prev = pos_hist.at(0);
@@ -77,7 +81,8 @@ int TFlowFeature::Update(cv::Point2f pos_new, unsigned char status)
         // Feature is OK
         is_not_found = 0;
 
-        dbg_str.start("Velocity[%4d]: curr=[%5.1f  %5.1f]    ", id, pos_new.x, pos_new.y);
+        dbg_str.start("FeatUpdate[%4d%c]: curr=[%5.1f  %5.1f]    ", 
+            id, this->is_preview ? '\'' : ' ', pos_new.x, pos_new.y);
 
         if (pos_hist.size() > 0) {
             pos_prev = pos_hist.at(0);
@@ -91,7 +96,7 @@ int TFlowFeature::Update(cv::Point2f pos_new, unsigned char status)
     dbg_str.add("   [%c]",
         this->is_not_found     ? 'N' : ' ');
 
-    //TRACE_DBG("%s", dbg_str.get());
+    // TRACE_DBG("%s", dbg_str.get());
 
     if (pos_hist.size() >= POS_HIST_NUM)
         pos_hist.pop_back();
@@ -229,24 +234,30 @@ void TFlowFeature::RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, 
     int cfg = (int)_cfg;
 
     auto color =
-        is_new        ? FEAT_COLOR_NEW :
-        is_not_found  ? FEAT_COLOR_NOT_FOUND :
-        is_out_of_fov ? FEAT_COLOR_OUT_OF_CELLS :
-        is_sparced    ? FEAT_COLOR_OUT_OF_CELLS :
+        is_preview_sel ? FEAT_COLOR_PREVIEW_SEL :
+        is_preview     ? FEAT_COLOR_PREVIEW :
+        is_new         ? FEAT_COLOR_NEW :
+        is_not_found   ? FEAT_COLOR_NOT_FOUND :
+        is_out_of_fov  ? FEAT_COLOR_OUT_OF_CELLS :
+        is_sparsed     ? FEAT_COLOR_OUT_OF_CELLS :
         blue;
 
     auto size =
-        is_new        ? FEAT_SIZE_NEW :
-        is_not_found  ? FEAT_SIZE_NOT_FOUND :
-        is_out_of_fov ? FEAT_SIZE_OUT_OF_CELLS :
-        is_sparced    ? FEAT_SIZE_OUT_OF_CELLS :
+        is_preview_sel ? FEAT_SIZE_PREVIEW_SEL :
+        is_preview     ? FEAT_SIZE_PREVIEW :
+        is_new         ? FEAT_SIZE_NEW :
+        is_not_found   ? FEAT_SIZE_NOT_FOUND :
+        is_out_of_fov  ? FEAT_SIZE_OUT_OF_CELLS :
+        is_sparsed     ? FEAT_SIZE_OUT_OF_CELLS :
         16;
 
     auto shape =
-        is_new        ? FEAT_SHAPE_NEW :
-        is_not_found  ? FEAT_SHAPE_NOT_FOUND :
-        is_out_of_fov ? FEAT_SHAPE_OUT_OF_CELLS :
-        is_sparced    ? FEAT_SHAPE_OUT_OF_CELLS :
+        is_preview_sel ? FEAT_SHAPE_PREVIEW_SEL :
+        is_preview     ? FEAT_SHAPE_PREVIEW :
+        is_new         ? FEAT_SHAPE_NEW :
+        is_not_found   ? FEAT_SHAPE_NOT_FOUND :
+        is_out_of_fov  ? FEAT_SHAPE_OUT_OF_CELLS :
+        is_sparsed     ? FEAT_SHAPE_OUT_OF_CELLS :
         FEAT_SHAPE_RECT;
 
     switch (shape) {
@@ -264,6 +275,17 @@ void TFlowFeature::RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, 
             draw::Line{ {(int)(pos.x - size / 2), (int)(pos.y) }, {(int)(pos.x + size / 2), (int)(pos.y) }, color });
         prims.emplace_back(
             draw::Line{ {(int)(pos.x), (int)(pos.y - size / 2)}, {(int)(pos.x), (int)(pos.y + size / 2)}, color });
+        break;
+
+    case FEAT_SHAPE_DIAM:
+        prims.emplace_back(
+            draw::Line { {(int)(pos.x - size / 2), (int)(pos.y +      0)}, {(int)(pos.x +       0), (int)(pos.y - size/2)}, color });
+        prims.emplace_back(
+            draw::Line { {(int)(pos.x +        0), (int)(pos.y - size/2)}, {(int)(pos.x + size / 2), (int)(pos.y +      0)}, color });
+        prims.emplace_back(
+            draw::Line { {(int)(pos.x + size / 2), (int)(pos.y +      0)}, {(int)(pos.x +        0), (int)(pos.y + size/2)}, color });
+        prims.emplace_back(
+            draw::Line { {(int)(pos.x +        0), (int)(pos.y + size/2)}, {(int)(pos.x - size / 2), (int)(pos.y +      0)}, color });
         break;
 
     case FEAT_SHAPE_CIRC:
@@ -290,7 +312,23 @@ void TFlowFeature::RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, 
             {txt}, lbl_ancor_pos[lbl_ancor_idx++], font, 0.8, color });     // Use feature shape color    
     }
 
-    if (is_new) {
+#if 0
+    if (cfg_render_dbg & (int)RenderDbg::TIME) {
+        char time_spent_str[16] = "";
+        snprintf(time_spent_str, sizeof(time_spent_str), "gftt %5.1fms", time_spent_ms);
+        String time_spent_label = String(time_spent_str);
+
+        prims.emplace_back(draw::Text{
+                    time_spent_label, Point2f(10, -10),
+                    cv::FONT_HERSHEY_PLAIN, 1.2, white });
+
+        prims.emplace_back(draw::Text{
+                    time_spent_label, Point2f(11, -11),
+                    cv::FONT_HERSHEY_PLAIN, 1.2, red });
+    }
+#endif
+
+    if (1 /*is_new*/) {
         if (cfg & (int)RenderDbg::QUALITY) {
             snprintf(txt, sizeof(txt), "%d", quality_scores);
 

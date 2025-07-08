@@ -153,20 +153,21 @@ void TFlowPerfMon::Render(vector<draw::Prim>& prims)
     else if (cfg_render_dbg & (int)RenderDbg::FPS) {
         snprintf(txt_load_fps, sizeof(txt_load_fps), "F%5.1f", load_fps);
         label.append(txt_load_fps);
-}
-    else if (cfg_render_dbg & (int)RenderDbg::LOAD_MSEC) {
-        snprintf(txt_load_msec, sizeof(txt_load_msec), "%5.1fms", load_msec);
-        label.append(txt_load_msec);
-}
-    else if (cfg_render_dbg & (int)RenderDbg::LOAD_PERC) {
-        snprintf(txt_load_perc, sizeof(txt_load_perc), " L%5.1f%%", load_perc);
-        label.append(txt_load_perc);
-}
+    }
+        else if (cfg_render_dbg & (int)RenderDbg::LOAD_MSEC) {
+            snprintf(txt_load_msec, sizeof(txt_load_msec), "%5.1fms", load_msec);
+            label.append(txt_load_msec);
+    }
+        else if (cfg_render_dbg & (int)RenderDbg::LOAD_PERC) {
+            snprintf(txt_load_perc, sizeof(txt_load_perc), " L%5.1f%%", load_perc);
+            label.append(txt_load_perc);
+    }
 
     if (label.empty()) return;
 
     prims.emplace_back(draw::Text{ label, lbl_ancor, 
         cv::FONT_HERSHEY_PLAIN, 1, blue });
+
     prims.emplace_back(draw::Text{ label, lbl_ancor + Point2i(1,1), 
         cv::FONT_HERSHEY_PLAIN, 1, white });
 

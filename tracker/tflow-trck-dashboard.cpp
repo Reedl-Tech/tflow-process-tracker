@@ -27,59 +27,139 @@ namespace draw = cv::gapi::wip::draw;
 #include "tflow-trck.hpp"
 #include "tflow-trck-dashboard.hpp"
 
+#if OFFLINE_PROCESS
 const char* TFLOW_TRACKER_DASH_WIN = "TFlow Tracker Dashboard";
+#endif
 
 static void dashb_on_mouse_cb(int m_event, int x, int y, int m_flags, void* userdata)
 {
     TFlowTrackerDashboard* dashb = (TFlowTrackerDashboard*)userdata;
-    dashb->onMouse(m_event, x, y, m_flags);
+    dashb->onPointer(m_event, x, y, m_flags);
 }
 
-void TFlowTrackerDashboard::onMouse(int event, int x, int y, int flags)
+void TFlowTrackerDashboard::onPointer(int event, int x, int y, int flags)
 {
+    Point2i cam_off = Point2i(frameCamRect.x + 10,  frameCamRect.y + 10);
+    
     switch (event) {
+    case EVENT_MOUSEMOVE:
+        if (flags & EVENT_FLAG_RBUTTON) {
+            if (preview_cursor.x != x ||
+                preview_cursor.y != y) {
+                
+                if (preview_mode == 0) preview_mode = 1;
+                
+                // Cursor position changed
+                preview_cursor = Point2i(x, y) - cam_off;
+                preview_force_frame = 1; 
+            }
+        }
+        break;
+    case EVENT_RBUTTONDOWN:
+        if (!(flags & EVENT_FLAG_LBUTTON)) {
+            preview_mode = 1;
+            preview_cursor = Point2i(x, y) - cam_off;
+            preview_force_frame = 1; 
+        }
+        break;
     case EVENT_LBUTTONDOWN:
+        if ((flags & EVENT_FLAG_RBUTTON) && preview_mode == 1) {
+//            preview_selected = Point2i(x, y);
+            preview_mode = 2;
+            preview_force_frame = 1; 
+            preview_cursor = Point2i(x, y) - cam_off;
+            // TODO: Start dragging to select multiple seed points
+            //       Release dragging on left button up.
+        }
+        break;
+    case EVENT_RBUTTONUP:
+        preview_mode = 0;    // Drop selection 
+        preview_force_frame = 1; 
+        preview_cursor = Point2i(-1, -1);
         break;
     case EVENT_LBUTTONUP:
+        preview_mode = 3;   // Transfer selected preview features to flytime
+        preview_force_frame = 1; 
+        preview_cursor = Point2i(-1, -1);
         break;
     case EVENT_MOUSEWHEEL:
-        int w_delta = getMouseWheelDelta(flags);
         break;
-        //EVENT_MOUSEHWHEEL = 11 //!< positive and negative values mean right and left scrolling, respectively.
     }
+
+
 }
 
-TFlowTrackerDashboard::TFlowTrackerDashboard(const TFlowTrackerCfg::cfg_trck_dashboard* _cfg) :
+TFlowTrackerDashboard::TFlowTrackerDashboard(
+    const TFlowTrackerCfg::cfg_trck_dashboard* _cfg,
+    int cam_frame_w, int cam_frame_h) :
     frame_size((float)_cfg->main_win_w.v.num, (float)_cfg->main_win_h.v.num),
     dbg_str{ TRACE_EN }
 {
     cfg = _cfg;
     frameMain = Mat();               // Realocates Mat (wraps shared memory) on each frame
+
+    instr_refresh = 1;
     
-    // If grid is in use, we have to convert input image to the selected target 
-    // foramt in a dedicated buffer and then scale to the target dashboard buffer.
-    // TODO: consider NV21 target buffer format
-    frameCam = Mat(frame_size, CV_8UC3);
+    Size frame_cam_size_nv12(cam_frame_w, cam_frame_h + cam_frame_h / 2);
+    Size frame_cam_size_Y(cam_frame_w, cam_frame_h);
+    Size frame_cam_size_UV(cam_frame_w / 2, cam_frame_h / 2);
+    frameCam = Mat(frame_cam_size_nv12, CV_8UC1);
+    frameCamY = Mat(frame_cam_size_Y, CV_8UC1, (void*)frameCam.datastart);
+    frameCamUV = Mat(frame_cam_size_UV, CV_8UC2, (void*)frameCamY.dataend);
 
     instr_prims.reserve(1000);
 
-    compassInitRender();
-    rollInitRender();
-    pitchInitRender();
+#if OFFLINE_PROCESS
+    namedWindow(TFLOW_TRACKER_DASH_WIN, WINDOW_GUI_EXPANDED | WINDOW_KEEPRATIO);
+    moveWindow(TFLOW_TRACKER_DASH_WIN, 600, 300);
+    resizeWindow(TFLOW_TRACKER_DASH_WIN, frame_size);
+    setMouseCallback(TFLOW_TRACKER_DASH_WIN, dashb_on_mouse_cb, (void*)this);
+#endif
+
 }
 
-void TFlowTrackerDashboard::addCamFrame(const Mat& frameBW)
+void TFlowTrackerDashboard::addCamFrameZoomed(const cv::Rect2f grid_sector)
 {
-    if (frameMain.empty()) {
-        frameCam = Mat();
+#define UV_RECT(_rect) Rect(  (int)_rect.x/2, (int)_rect.y/2, (int)_rect.width/2, (int)_rect.height/2)
+
+    if (frameCam.empty()) {
         return;
     }
 
-    if (frameCam.empty()) {
-        frameCam = frameMain(Rect(4, 4, frameBW.cols, frameBW.rows));
+    Rect uv_rect = UV_RECT(grid_sector);
+
+#if ZOOM_DIS
+    Mat frameZoomSrcY = frameCamY;
+    Mat frameZoomSrcUV = frameCamUV;
+#else 
+    Mat frameZoomSrcY = frameCamY(grid_sector);
+    Mat frameZoomSrcUV = frameCamUV(uv_rect);
+#endif
+
+    Mat frameZoomDstY;
+    Mat frameZoomDstUV;
+    if (grid_zoom_step > 0) {
+        // Zoom animation
+        Point2f src_tl = grid_sector.tl();
+        Point2f src_br = grid_sector.br();
+        Point2f dst_tl = frameCamRect.tl();
+        Point2f dst_br = frameCamRect.br();
+        auto tl = src_tl - ((src_tl - dst_tl) / grid_zoom_step);
+        auto br = src_br - ((src_br - dst_br) / grid_zoom_step);
+        
+        grid_zoom_step--;
+        frameZoomDstY = frameMainY(Rect(tl, br));
+        frameZoomDstUV = frameMainUV(UV_RECT(Rect(tl, br)));
+    }
+    else {
+        frameZoomDstY = frameMainY(frameCamRect);
+        frameZoomDstUV = frameMainUV(UV_RECT(frameCamRect));
     }
 
-    cv::cvtColor(frameBW, frameCam, COLOR_GRAY2BGR);
+    cv::resize(frameZoomSrcY, frameZoomDstY, frameZoomDstY.size());
+    //frameZoomDst += 16;
+    cv::resize(frameZoomSrcUV, frameZoomDstUV, frameZoomDstUV.size());
+
 }
 
 void TFlowTrackerDashboard::pitchInitRender()
@@ -438,8 +518,6 @@ void TFlowTrackerDashboard::render()
 {
     if (frameMain.empty()) return;
 
-
-
 #if 0
     if (instr_refresh) {
         instr_refresh = 0;
@@ -449,12 +527,11 @@ void TFlowTrackerDashboard::render()
     }
 #endif
 
-    draw::render(frameMain, instr_prims);
-    renderCamZoom();
+    draw::render(frameMainY, frameMainUV, instr_prims);
 
-#if OFFLINE_TRACKER
-    cv::imshow(TFLOW_TRCK_DASH_WIN, frameMain);
-#else
+#if OFFLINE_PROCESS
+    cv::cvtColorTwoPlane(frameMainY, frameMainUV, frameMainBGR, COLOR_YUV2BGR_NV12);
+    cv::imshow(TFLOW_TRACKER_DASH_WIN, frameMainBGR);
 #endif
 
 }
@@ -478,8 +555,8 @@ void TFlowTrackerDashboard::instrRender()
 void TFlowTrackerDashboard::getDashboardFrameSize(float* w, float* h)
 {
     if (w && h) {
-        *w = frameMain.cols; // dashboard.frame_size.width;
-        *h = frameMain.rows; // dashboard.frame_size.height;
+        *w = (float)frameMain.cols; // dashboard.frame_size.width;
+        *h = (float)frameMain.rows; // dashboard.frame_size.height;
     }
 }
 
@@ -493,14 +570,30 @@ void TFlowTrackerDashboard::getDashboardFrameBuff(const uint8_t **buff, size_t *
 
 void TFlowTrackerDashboard::initDashboardFrame()
 {
+
     if (frameMain.empty()) {
-        frameMain = Mat(frame_size, CV_8UC3);
+        Size frame_size_nv12((int)lround(frame_size.width), (int)lround(frame_size.height * 1.5));
+        Size frame_size_Y((int)lround(frame_size.width), (int)lround(frame_size.height));
+        Size frame_size_UV((int)lround(frame_size.width/2), (int)lround(frame_size.height/2));
+        frameMain = Mat(frame_size_nv12, CV_8UC1);
+        frameMainY = Mat(frame_size_Y, CV_8UC1, (void*)frameMain.datastart);
+        frameMainUV = Mat(frame_size_UV, CV_8UC2, (void*)frameMainY.dataend);
+        frameCamRect = Rect(20, 20, 384, 288);    // Note: Size is choosen by FLYN frame format,
+                                                //       to avoid unnecessary scaling, but 
+                                                //       can be any other as an actual camera 
+                                                //       frame will be scaled to this rectangle.
+
     }
-    frameMain = 0;
+    static const cv::Scalar fill(128, 128);
+    frameMainY = 16;
+    frameMainUV = fill;
+
 }
 
 void TFlowTrackerDashboard::initDashboardFrame(uint8_t* data_ptr)
 {
+#if DASHBOARD_FMT_NV12
+#elif DASHBOARD_FMT_BGR
     if (data_ptr) {
         frameMain = Mat(frame_size, CV_8UC3, data_ptr);
         frameMain = 0;
@@ -508,6 +601,7 @@ void TFlowTrackerDashboard::initDashboardFrame(uint8_t* data_ptr)
     else {
         frameMain = Mat();
     }
+#endif
 }
 
 static void drawGrid(const cv::Rect2f &rect2f, const cv::Scalar &color, vector<draw::Prim>& prims) {
@@ -540,37 +634,19 @@ static void drawGrid(const cv::Rect2f &rect2f, const cv::Scalar &color, vector<d
         color, 1} );
 }
 
-void TFlowTrackerDashboard::renderCamZoom()
-{
-    Rect dashboard_cam = Rect (0, 0, frameCam.cols, frameCam.rows);
-
-    Mat frameZoomSrc = frameCam(grid_sector);
-    Mat frameZoomDst;
-    if (grid_zoom_step > 0) {
-        Point2f src_tl = grid_sector.tl();
-        Point2f src_br = grid_sector.br();
-        Point2f dst_tl = dashboard_cam.tl();
-        Point2f dst_br = dashboard_cam.br();
-        auto tl = src_tl - ((src_tl - dst_tl) / grid_zoom_step);
-        auto br = src_br - ((src_br - dst_br) / grid_zoom_step);
-        
-        grid_zoom_step--;
-        frameZoomDst = frameMain(Rect(tl, br));
-    }
-    else {
-        frameZoomDst = frameMain(dashboard_cam);
-    }
-
-    cv::resize(frameZoomSrc, frameZoomDst, frameZoomDst.size());
-}
-
 void TFlowTrackerDashboard::renderGrid(vector<draw::Prim>& prims)
 {
+}
+
+cv::Rect2f TFlowTrackerDashboard::getGridSector()
+{
+    cv::Rect2f grid_sector;
+
     // Draw grid
     // draw top level get rect
     static const float sh = 1.f / 3;
     static const float sw = 1.f / 3;
-    static vector<const cv::Scalar *> colors = {&viol, &blue, &red};
+    static vector<const cv::Scalar *> colors = {&violet, &blue, &red};
     static const Point2f sect[10] = { 
         {0, 0}, // not used
         {0*sw, 0*sh},       {sw, 0*sh},      {2*sw, 0*sh},
@@ -578,9 +654,8 @@ void TFlowTrackerDashboard::renderGrid(vector<draw::Prim>& prims)
         {0*sw, 2*sh},       {sw, 2*sh},      {2*sw, 2*sh},
     };
 
-    Rect2f s0(0, 0, (float)frameCam.cols, (float)frameCam.rows);
+    Rect2f s0(frameCamRect);
     Rect2f &s = s0;
-    drawGrid(s, red, prims);
 
     grid_sector = s0;
     auto it_sector = grid_sectors_idx.begin();
@@ -595,7 +670,7 @@ void TFlowTrackerDashboard::renderGrid(vector<draw::Prim>& prims)
         grid_sector.y = s.y + (sect[sect_idx].y * s.height);
         grid_sector.width  = sw * s.width;
         grid_sector.height = sh * s.height;
-        drawGrid(grid_sector, color, prims);
+//        drawGrid(grid_sector, color, prims);
         s = grid_sector;        
     }
 
@@ -615,15 +690,17 @@ void TFlowTrackerDashboard::renderGrid(vector<draw::Prim>& prims)
         grid_sector.width += 2;
         grid_sector.height += 2;
     }
-    // Limit to CamFrame        
+    // Limit to Camera Frame rectangle
     if (grid_sector.x < 0) grid_sector.x = 0;
     if (grid_sector.y < 0) grid_sector.y = 0;
 
-    if (grid_sector.width + grid_sector.x > (float)frameCam.cols)
-        grid_sector.width = (float)frameCam.cols - grid_sector.x;
+    if (grid_sector.width + grid_sector.x > (float)frameCamRect.width)
+        grid_sector.width = (float)frameCamRect.width - grid_sector.x;
 
-    if (grid_sector.height + grid_sector.y > (float)frameCam.rows)
-        grid_sector.height = (float)frameCam.rows - grid_sector.y;
+    if (grid_sector.height + grid_sector.y > (float)frameCamRect.height)
+        grid_sector.height = (float)frameCamRect.height - grid_sector.y;
+
+    return grid_sector;
 }
 
 int TFlowTrackerDashboard::onConfigGrid(const std::string &grid_cfg)

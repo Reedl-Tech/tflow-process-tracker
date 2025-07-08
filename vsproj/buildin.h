@@ -3,7 +3,9 @@
 #define UBUNTU 0
 #define YOCTO 1
 
+#if (OFFLINE_PROCESS)
 #define _WIN32 1
+#endif
 
 #if UBUNTU
 #define __SSP_STRONG__ 3

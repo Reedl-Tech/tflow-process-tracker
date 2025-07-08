@@ -14,6 +14,7 @@
 #include "tflow-player.hpp"
 #include "tflow-streamer.hpp"
 #include "tflow-algo.hpp"
+#include "tflow-btc.hpp"
 
 class TFlowStreamerProcess : TFlowBufSrv {
 
@@ -110,6 +111,7 @@ public:
     TFlowBufCli *buf_cli;
     TFlowPlayer* player;
     TFlowStreamer *fifo_streamer;
+    TFlowBtc *btc_comm;
 
     void setOpenCL(int ocl_enabled);
 
@@ -121,8 +123,11 @@ public:
 
     void onSrcReadyCam(TFlowBufPck::pck_fd* src_info);
     void onSrcReadyPlayer();
-
+    
     int setVideoSrc(const char *video_src);
+
+    // Btc callbacks
+    void onBtcMsg(const char *btc_msg);
 
     TFlowCtrlProcess ctrl;
 

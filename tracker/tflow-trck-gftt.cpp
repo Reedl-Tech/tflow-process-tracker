@@ -4,7 +4,7 @@
 #include <windows.h>
 #endif
 
-#if OFFLINE_TRACKER
+#if OFFLINE_PROCESS
 
 #else 
 #include <sched.h>
@@ -36,46 +36,20 @@ using namespace std;
 
 static Mat empty_mat = Mat();
 
-void TFlowGftt::cellsInit(int _frame_h, int _frame_v, int _margin_h, int _margin_v, int _cell_num_h, int _cell_num_v)
-{
-    frame_h = _frame_h;
-    frame_v = _frame_v;
-    margin_h = _margin_h;
-    margin_v = _margin_v;
-    cell_num_h = _cell_num_h;
-    cell_num_v = _cell_num_v;
-
-    fov_rect = Rect2i({ margin_h , margin_v, frame_h - 2 * margin_h, frame_v - 2 * margin_v });
-
-    cell_v = (float)((frame_v - 2 * margin_v) / cell_num_v);
-    cell_h = (float)((frame_h - 2 * margin_h) / cell_num_h);
-
-    float y = (float)margin_v;
-    for (int i = 0; i < cell_num_h; i++) {
-        float x = (float)margin_h;
-        for (int j = 0; j < cell_num_v; j++) {
-            cells.emplace_back(Rect2f({ x , y, cell_h, cell_v }));
-            x += cell_h;
-        }
-        y += cell_v;
-    }
-
-}
-
 TFlowGftt::TFlowGftt(
-    const TFlowTrackerCfg::cfg_trck_gftt* _cfg,
-    int frame_h, int frame_v,
-    int margin_h, int margin_v, int cell_num_h, int cell_num_v) :
+    const TFlowTrackerCfg::cfg_trck_gftt_flytime* _cfg_flytime,
+    const TFlowTrackerCfg::cfg_trck_gftt_preview* _cfg_preview,
+    int frame_h, int frame_v) :
     frame{ empty_mat }
 {
-    cfg = _cfg;
+    cfg_flytime = _cfg_flytime;
+    cfg_preview = _cfg_preview;
     is_busy = true;
     is_ready = false;
     time_spent_ms = 0;
 
-    cellsInit(frame_h, frame_v, margin_h, margin_v, cell_num_h, cell_num_v);
-
-#if OFFLINE_TRACKER
+    fov_rect = Rect2i(0, 0, -1, -1);
+#if OFFLINE_PROCESS
 
 #else 
 
@@ -117,7 +91,7 @@ TFlowGftt::TFlowGftt(
 
 TFlowGftt::~TFlowGftt()
 {
-#if OFFLINE_TRACKER
+#if OFFLINE_PROCESS
 
 #else 
 #if GFTT_MT
@@ -131,7 +105,7 @@ TFlowGftt::~TFlowGftt()
 #endif
 }
 
-#if OFFLINE_TRACKER
+#if OFFLINE_PROCESS
 
 #else
 
@@ -161,7 +135,7 @@ void TFlowGftt::gftt_thread_func()
 
 #endif // not OFFLINE
 
-void TFlowGftt::process()
+void TFlowGftt::preview_process()
 {
     gftt_features.clear();
     time_spent_ms = 0;
@@ -173,91 +147,96 @@ void TFlowGftt::process()
         return;
     }
 
-    for (int i = 0; i < cells_idx.size(); i++) {
-        std::vector<cv::Point2f> cell_feat_pos;
-        std::vector<double> cell_feat_qlt;
+    std::vector<cv::Point2f> preview_feat_pos;
+    std::vector<double> preview_feat_qlt;
 
-        Rect2f cell_rect = cells.at(cells_idx.at(i)).rect;
-        Mat cell_frame = Mat(frame, cell_rect);
+    float frame_cols = (float)frame.cols;
+    float frame_rows = (float)frame.rows;
 
-        goodFeaturesToTrack(
-            cell_frame,               // InputArray image,
-            cell_feat_pos,            // OutputArray corners,
-            cfg->max_corner.v.num,    // int maxCorners, 
-            cfg->qual_lvl.v.dbl,      // double qualityLevel = 0.5
-            cfg->min_dist.v.num,      // double minDistance = 600
-            Mat(),                    // InputArray mask.  AV: Never use it for performance improvements.
-            cell_feat_qlt,            // OutputArray cornersQuality, 
-            cfg->block_size.v.num,    // int blockSize = 21
-            cfg->gradient_size.v.num, // int gradientSize = 3
-            cfg->use_harris.v.num,    // bool useHarrisDetector = false
-            cfg->harris_k.v.dbl);     // double k = 0.04
+    Rect2f fov_rect_framed = fov_rect;
+    if (fov_rect_framed.x < 0) fov_rect_framed.x = 0;
+    if (fov_rect_framed.y < 0) fov_rect_framed.y = 0;
+    if (fov_rect_framed.x >= frame_cols) fov_rect_framed.x = frame_cols - 1;
+    if (fov_rect_framed.y >= frame_rows) fov_rect_framed.y = frame_rows - 1;
+    
+    if (fov_rect_framed.x + fov_rect_framed.width >= frame.cols) 
+        fov_rect_framed.width = frame_cols - fov_rect_framed.x;
 
-        Point2f cell_offset = Point2f(cell_rect.x, cell_rect.y);
+    if (fov_rect_framed.y + fov_rect_framed.height >= frame.rows) 
+        fov_rect_framed.height = frame_rows - fov_rect_framed.y;
 
-        // if (cell_feat_pos.size() == 0) add_virtual_feature();
+    _fov_rect_framed = fov_rect_framed;
 
-        // Filter new positions by quality
-        // Note: Bad quality features will be added for debug rendering 
-        //       purposes and then deleted in featPurge().
-        auto pos_it = cell_feat_pos.begin();
-        auto qlt_it = cell_feat_qlt.begin();
-        while (
-            pos_it != cell_feat_pos.end() &&
-            qlt_it != cell_feat_qlt.end()) {
+    Mat preview_frame = Mat(frame, fov_rect_framed);
 
-            double gftt_qlt = *qlt_it;
-            Point2f new_pos = cell_offset + *pos_it;
+    goodFeaturesToTrack(
+        preview_frame,                    // InputArray image,
+        preview_feat_pos,                 // OutputArray corners,
+        cfg_preview->max_corner.v.num,    // int maxCorners, 
+        cfg_preview->qual_lvl.v.dbl,      // double qualityLevel
+        cfg_preview->min_dist.v.num,      // double minDistance
+        Mat(),                            // InputArray mask.  AV: Never use it for performance improvements.
+        preview_feat_qlt,                 // OutputArray cornersQuality, 
+        cfg_preview->block_size.v.num,    // int blockSize = 21
+        cfg_preview->gradient_size.v.num, // int gradientSize = 3
+        cfg_preview->use_harris.v.num,    // bool useHarrisDetector = false
+        cfg_preview->harris_k.v.dbl);     // double k = 0.04
 
-#if FIX_ME_0
-            {
-#else
-            // AV: Note: If gftt filtered by distance here, then RUMBULA is
-            //           ok. If they filtered before add to features set,
-            //           then RUMBULA fails shortly after 1st u-turn, while
-            //           there shouldn't be difference. 
-            //           Need to be debugged.
-            //         
+    Point2f fov_offset = Point2f(fov_rect.x, fov_rect.y);
+
+    // Filter new positions by proximity to already existing and then by 
+    // quality.
+    // Note: Bad quality features will be added for debug rendering 
+    //       purposes and then deleted in featPurge().
+    auto pos_it = preview_feat_pos.begin();
+    auto qlt_it = preview_feat_qlt.begin();
+    while (
+        pos_it != preview_feat_pos.end() &&
+        qlt_it != preview_feat_qlt.end()) {
+
+        double gftt_qlt = *qlt_it;
+        Point2f new_pos = fov_offset + *pos_it;
                 
-            int cfg_new_feat_min_dist_sq = 600^2;
-                // (gt_optf_pyrlk.cfg->new_feat_min_dist.v.num ^ 2);       // 500 - bad; 600 - OK, 700 - not good
+        int cfg_new_feat_min_dist_sq = cfg_preview->min_dist.v.num^2;
 
-            int min_dist_sq = INT_MAX;
-            for (auto &it_feat_pos : existing_feat_pos) {
-                auto d_dist = it_feat_pos - new_pos;
-                min_dist_sq = MIN(min_dist_sq, (int)roundf(d_dist.dot(d_dist)));
-                if (min_dist_sq < cfg_new_feat_min_dist_sq) break;
-            }
-
-            if (min_dist_sq > cfg_new_feat_min_dist_sq) {          // !!!!!!!!!!!!!!!!!!!!!!!
-#endif
-                Rect crop(
-                    (int)new_pos.x - cfg->qlt_block_size.v.num / 2,
-                    (int)new_pos.y - cfg->qlt_block_size.v.num / 2,
-                    cfg->qlt_block_size.v.num,
-                    cfg->qlt_block_size.v.num);
-
-                crop.x = (crop.x < 0) ? 0 : crop.x;
-                crop.y = (crop.y < 0) ? 0 : crop.y;
-
-                int contrast_scores = TFlowFeature::CalcContrast(frame(crop));
-                int quality_scores = TFlowFeature::CalcQuality(gftt_qlt, contrast_scores);
-
-                // id == -1 because gftt creates temporary Features. 
-                // ID will be asigned on add-on to main Features set.
-                gftt_features.emplace_back(new_pos, quality_scores, -1);
-            }
-            ++pos_it;
-            ++qlt_it;
+        int min_dist_sq = INT_MAX;
+        for (auto &it_feat_pos : existing_feat_pos) {
+            auto d_dist = it_feat_pos - new_pos;
+            min_dist_sq = MIN(min_dist_sq, (int)roundf(d_dist.dot(d_dist)));
+            if (min_dist_sq < cfg_new_feat_min_dist_sq) break;
         }
+
+        if (min_dist_sq > cfg_new_feat_min_dist_sq) {
+
+            Rect crop(
+                (int)new_pos.x - cfg_preview->qlt_block_size.v.num / 2,
+                (int)new_pos.y - cfg_preview->qlt_block_size.v.num / 2,
+                cfg_preview->qlt_block_size.v.num,
+                cfg_preview->qlt_block_size.v.num);
+
+            crop.x = (crop.x < 0) ? 0 : crop.x;
+            crop.y = (crop.y < 0) ? 0 : crop.y;
+            if ((crop.x + crop.width) > frame.cols) {
+                crop.x = frame.cols - crop.width - 1;
+            }
+            if ((crop.y + crop.height) > frame.rows) {
+                crop.y = frame.rows - crop.height - 1;
+            }
+
+            int contrast_scores = TFlowFeature::CalcContrast(frame(crop));
+            int quality_scores = TFlowFeature::CalcQuality(gftt_qlt, contrast_scores);
+
+            // id == -1 because gftt creates temporary Features. 
+            // ID will be asigned on add-on to main Features set.
+            quality_scores = 3; 
+            // AV: TODO: Tune in!
+            TFlowFeature &feat = gftt_features.emplace_back(new_pos, quality_scores, -1);
+            feat.is_preview = 1;            
+        }
+        ++pos_it;
+        ++qlt_it;
     }
-#if 0
-    // Load imitation
-    static double g_x;
-    for (int i = 0; i < 1 * 100 * 1000; i++) {
-        g_x = sin(i) / log(tan(i));
-    }
-#endif
+
     is_busy = false;
     is_ready = true;
 }
@@ -289,16 +268,23 @@ int TFlowGftt::get_busy()
 
 #endif
 
-void TFlowGftt::RenderGFTT(std::vector<cv::gapi::wip::draw::Prim>& prims)
+void TFlowGftt::RenderGFTTPreview(std::vector<cv::gapi::wip::draw::Prim>& prims)
 {
-    int cfg_render_dbg = cfg->render_dbg.v.num;
+    int cfg_render_dbg = cfg_preview->render_dbg.v.num;
 
-    if (cfg_render_dbg & (int)RenderDbg::CELLS) {
-        std::for_each(cells_idx.begin(), cells_idx.end(), [&](int idx) {
-            prims.emplace_back(
-                draw::Rect{ cells.at(idx).rect, green, 1, cv::LINE_8, 0 });
+#if 0
+    if (cfg_render_dbg & (int)RenderDbg::POINTS) {
+        std::for_each(gftt_features.begin(), features.end(), [&](TFlowFeature& feat) {
+            prims.emplace_back(draw::Circle{ feat.pos, 3, red });
             });
     }
+#endif
+
+}
+
+void TFlowGftt::RenderGFTTFlytime(std::vector<cv::gapi::wip::draw::Prim>& prims)
+{
+    int cfg_render_dbg = cfg_flytime->render_dbg.v.num;
 
 #if 0
     if (cfg_render_dbg & (int)RenderDbg::POINTS) {
@@ -337,10 +323,5 @@ void TFlowGftt::RenderGFTT(std::vector<cv::gapi::wip::draw::Prim>& prims)
                     time_spent_label, Point2f(11, -11),
                     cv::FONT_HERSHEY_PLAIN, 1.2, red });
     }
-}
-
-TFlowGfttCell::TFlowGfttCell(Rect2f _rect)
-{
-    rect = _rect;
 }
 

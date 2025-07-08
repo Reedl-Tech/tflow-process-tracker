@@ -1,19 +1,22 @@
 #pragma once
 #include "../tflow-build-cfg.hpp"
 
+// #include <cstdint>
 #include <vector>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui.hpp>  // OpenCV window I/O
 #include <opencv2/gapi.hpp>
 
-#if OFFLINE_TRACKER
-#include "tflow-render.hpp"
+#include <stdint.h>
+#if OFFLINE_PROCESS
+#include "../tflow-render.hpp"
 #else
 #endif
 
 #include "../tflow-common.hpp"
 #include "../tflow-perfmon.hpp"
+#include "../tflow-pwm.hpp"
 #include "../tflow-algo.hpp"
 
 #include "tflow-trck-imu.hpp"
@@ -36,7 +39,6 @@ struct TFlowTrackerMsg {
 };
 #pragma pack(pop)
 
-
 class TFlowTracker : public TFlowAlgo {
 
 private:
@@ -54,9 +56,11 @@ private:
 
     cv::Size frame_size;
 
+    void onFrameAlgo(cv::Mat& frame_curr);
 public:
 
     /* ======== TFlow Algo overrides ========= */
+    void onPointer(int event, int x, int y, int flags);
     void onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in);       // Main entry point
     void onRewind();                                            // Called on player rewind
     TFlowBufPck::pck& getMsg(int* msg_len);                     // Returns the message to send back.
@@ -85,13 +89,9 @@ public:
         MAP      = (1 << 6),
     };
 
-#if OFFLINE_TRACKER
-    TFlowTracker(std::vector<cv::Mat>& _in_frames, const TFlowCtrlProcess::cfg_tracker* _cfg);
-#else
     TFlowTracker(std::vector<cv::Mat>& _in_frames, const TFlowTrackerCfg::cfg_tracker* cfg);
-#endif
 
-	~TFlowTracker();
+    ~TFlowTracker();
 
     const TFlowTrackerCfg::cfg_tracker* cfg;
 
@@ -100,15 +100,25 @@ public:
     TFlowTraceLog  dbg_str;
 
     std::map<int, TFlowFeature> features;
+    std::map<int, TFlowFeature> features_preview;
 
     TFlowImu                    imu;
-    TFlowGftt                   gftt;
+    TFlowGftt                   gftt_flytime;
+    TFlowGftt                   gftt_preview;
 
-    TFlowTrackerDashboard              dashboard;
+    TFlowTrackerDashboard       dashboard;
 
     cv::Size                    gftt_pyr_win_size;      // Move to GFTT ?
     cv::Size                    curr_pyr_win_size;      // 
 
+    int grid_sector_ext = 0;      // Grid's sector extension in percent
+    std::vector<int> grid_follow_marks;
+    std::vector<int> grid_sectors_idx;
+
+    std::vector<cv::Rect2f>     grid0_sectors;
+    std::vector<cv::Rect2f>     grid1_sectors;
+
+    int force_redraw;                // Set from on configuration change
     struct TFlowTrackerMsg msg;         // Output message. Filled by request from host process.
 
     /****************/
@@ -118,25 +128,37 @@ public:
 
     void featPurge();
     void featChoose(std::vector<TFlowFeature*> &feat_to_track);
+    void featPreviewChoose(std::vector<TFlowFeature*> &feat_to_track);
     
     void featUpdate(
         vector<cv::Mat>& pyr_curr, vector<cv::Mat>& pyr_prev,
         std::vector<TFlowFeature*> features_to_track);
 
     void featRespawn(const cv::Mat &frame, const TFlowImu& imu);
-    void featCheckDistribution(vector<int>& cells_idx, const TFlowImu& imu);
-    void gfttFeatUpdate(std::vector<cv::Point2f> flow_points, std::vector<unsigned char> flow_status);
     int  featMinDistance(TFlowFeature& in_feat);
+    
+    void featPreviewSelect(const Point2i &cursor_pos);
+    void featPreviewRespawn(const cv::Mat &frame, const TFlowImu& imu);
+    void gfttPreviewFeatUpdate(std::vector<cv::Point2f> flow_points, std::vector<unsigned char> flow_status);
 
     void featSparse();
-    
+    void featCleanup();
+    void featPreviewCleanup();
+
     void fillTrackerMsg();
 
     void dashboardUpdate();
     // Render debug info to the provided frame
     void RenderDebugInfo(cv::Mat& frame);
-    
-    TFlowPerfMon perf_mon;
-};
+    void renderPitchHold(vector<draw::Prim>& prims);
+    void renderPreviewCursor(vector<draw::Prim>& prims);
+    void renderGrid(vector<draw::Prim>& prims);
 
+    TFlowPerfMon perf_mon;
+
+    TFlowPWM servo_pitch;
+
+    cv::Rect2f getGridSector();
+
+};
 

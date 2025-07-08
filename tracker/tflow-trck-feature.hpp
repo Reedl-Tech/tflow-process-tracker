@@ -30,6 +30,7 @@ private:
         FEAT_SHAPE_RECT,
         FEAT_SHAPE_CROSS,
         FEAT_SHAPE_CIRC,
+        FEAT_SHAPE_DIAM,
     };
 
     static const FEAT_SHAPE FEAT_SHAPE_NEW          = FEAT_SHAPE_RECT;
@@ -37,17 +38,23 @@ private:
     static const FEAT_SHAPE FEAT_SHAPE_NOT_FOUND    = FEAT_SHAPE_RECT;
     static const FEAT_SHAPE FEAT_SHAPE_OUT_OF_CELLS = FEAT_SHAPE_RECT;
     static const FEAT_SHAPE FEAT_SHAPE_VIRTUAL      = FEAT_SHAPE_CIRC;
+    static const FEAT_SHAPE FEAT_SHAPE_PREVIEW      = FEAT_SHAPE_DIAM;
+    static const FEAT_SHAPE FEAT_SHAPE_PREVIEW_SEL  = FEAT_SHAPE_DIAM;
     
     static const int FEAT_SIZE_NEW          = 8;
     static const int FEAT_SIZE_PROBATION    = 8;
     static const int FEAT_SIZE_NOT_FOUND    = 6;
     static const int FEAT_SIZE_OUT_OF_CELLS = 6;
     static const int FEAT_SIZE_VIRTUAL      = 6;
+    static const int FEAT_SIZE_PREVIEW      = 12;
+    static const int FEAT_SIZE_PREVIEW_SEL  = 12;
 
     static constexpr const cv::Scalar &FEAT_COLOR_NEW          = cyan;
     static constexpr const cv::Scalar &FEAT_COLOR_NOT_FOUND    = red;
     static constexpr const cv::Scalar &FEAT_COLOR_OUT_OF_CELLS = red;
     static constexpr const cv::Scalar &FEAT_COLOR_VIRTUAL      = red;
+    static constexpr const cv::Scalar &FEAT_COLOR_PREVIEW      = cyan;
+    static constexpr const cv::Scalar &FEAT_COLOR_PREVIEW_SEL  = yellow;
 
 public:
     enum class RenderDbg {
@@ -93,7 +100,9 @@ public:
 
     int   is_new;           // Temporary mark for debugging purposes
     int   is_out_of_fov;    // Feature is too close to boundaries
-    int   is_sparced;       // Feature is too close to others
+    int   is_sparsed;       // Feature is too close to others
     int   is_not_found;     // Feature not found in the frame.
+    int   is_preview;       // Features found around the user cursor
+    int   is_preview_sel;   // Preview features selected for tracking.
 
 };

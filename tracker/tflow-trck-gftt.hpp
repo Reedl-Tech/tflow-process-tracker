@@ -8,7 +8,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/gapi.hpp>
 
-#if OFFLINE_TRACKER
+#if OFFLINE_PROCESS
 #else 
 #include "../tflow-ctrl-process.hpp"
 #endif
@@ -17,23 +17,17 @@
 
 class TFlowFeature;
 
-class TFlowGfttCell {
-public:
-    TFlowGfttCell(cv::Rect2f rect);
-    cv::Rect2f rect;
-};
-
 class TFlowGftt {
 
 public:
     TFlowGftt(
-        const TFlowTrackerCfg::cfg_trck_gftt *cfg,
-        int frame_h, int frame_v,
-        int margin_h, int margin_v, int cell_num_h, int cell_num_v);
+        const TFlowTrackerCfg::cfg_trck_gftt_flytime *cfg_flytime,
+        const TFlowTrackerCfg::cfg_trck_gftt_preview *cfg_preview,
+        int frame_h, int frame_v);
 
     ~TFlowGftt();
 
-#if OFFLINE_TRACKER
+#if OFFLINE_PROCESS
 
 #else 
 #if GFTT_MT
@@ -42,30 +36,25 @@ public:
 #endif
 #endif
 
-    void process();
+    void preview_process();
 
-    void RenderGFTT(std::vector<cv::gapi::wip::draw::Prim>& prims);       // Executed in GFTT thread. Renders cell info, result, performance, etc.
+    void RenderGFTTFlytime(std::vector<cv::gapi::wip::draw::Prim>& prims);  // Executed in GFTT thread. Renders cell info, result, performance, etc.
+    void RenderGFTTPreview(std::vector<cv::gapi::wip::draw::Prim>& prims);  // Executed in GFTT thread. Renders cell info, result, performance, etc.
 
     enum class RenderDbg {
         NONE    = 0,
-        CELLS   = (1 << 1),
         POINTS  = (1 << 2),
         QUALITY = (1 << 3),
         TIME    = (1 << 4),
     };
 
     cv::Rect2f fov_rect;
-    std::vector<TFlowGfttCell> cells;
-
+    cv::Rect2f _fov_rect_framed; // temporary
     /*
      * GFTT input argument
      */
     cv::Mat& frame;                          // Input frame for each gftt pass. 
                                              // Set by parent module.
-
-    std::vector<int> cells_idx;              // Vector is used as an input parameter 
-                                             // for each gftt pass. Filled by the
-                                             // host module (TFlowTracker)
 
     std::vector<cv::Point2f> existing_feat_pos;
 
@@ -80,7 +69,8 @@ public:
     /*
      * GFTT configuration
      */
-    const TFlowTrackerCfg::cfg_trck_gftt* cfg;
+    const TFlowTrackerCfg::cfg_trck_gftt_preview* cfg_preview;
+    const TFlowTrackerCfg::cfg_trck_gftt_flytime* cfg_flytime;
     
     /*
      * Cells layout parameters
@@ -107,7 +97,7 @@ public:
 
 private:
 
-#if OFFLINE_TRACKER
+#if OFFLINE_PROCESS
  
 #else 
 
@@ -120,6 +110,5 @@ private:
 #endif
 #endif
 
-    void cellsInit(int _frame_h, int _frame_v, int _margin_h, int _margin_v, int _cell_num_h, int _cell_num_v);
 
 };

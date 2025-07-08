@@ -12,14 +12,14 @@ using namespace std;
 class TFlowTrackerDashboard {
     
 public:
-    TFlowTrackerDashboard(const TFlowTrackerCfg::cfg_trck_dashboard* cfg);
+    TFlowTrackerDashboard(const TFlowTrackerCfg::cfg_trck_dashboard* cfg, int cam_frame_w, int cam_frame_h);
 
     TFlowTraceLog         dbg_str;
 
     /* Render Map specific - GUI callbacks */
-    void onMouse(int event, int x, int y, int flags);
+    void onPointer(int event, int x, int y, int flags);
 
-    void addCamFrame(const Mat& frameBW);
+    void addCamFrameZoomed(const cv::Rect2f grid_sector);
 
     /* ======== Algo overrides ======= */
     void initDashboardFrame(uint8_t* data_ptr);
@@ -31,26 +31,52 @@ public:
     int onConfigGrid(const std::string &grid_cfg);
     
     void onConfig(const json11::Json& j_in_params, json11::Json::object& j_out_params);
+
+    cv::Rect2f getGridSector();
     
-    void renderCamZoom();
     void renderGrid(vector<draw::Prim>& prims);
     void render();
     
     void instrUpdate(const TFlowImu& imu);
 
     Mat frameMain;
+
+    Mat frameMainY;     // Mat wrapper for Y plane of frameMain
+    Mat frameMainUV;    // Mat wrapper for UV plane of frameMain
+    Rect frameCamRect;  // Rectangle within frameMain where camera frame will be rendered to.
+
     Mat frameCam;
+    Mat frameCamY;
+    Mat frameCamUV;
+
+#if OFFLINE_PROCESS
+    // imshow can't render NV12
+    Mat frameMainBGR;
+#endif
+
 
     int instr_refresh;
 
-    const Size2f frame_size;  // Copy of config param for more convenient access
+    const Size2f frame_size;  // Copy of config param for more convenient access. 
+                              // Att!: It is not the same as the Camera frame size.
+                              //       Dashboard size might be smaller or bigger
+                              //       than an input frame from a camera. 
+
+    std::vector<draw::Prim> instr_prims;
+
+    /* Preview mode */
+    int preview_mode = 0;           // Right mouse butoon is pressed - GFTT runs around the cursor
+    int preview_force_frame = 0;    // Initiate frame processing even if it wasn't changed.
+                                    // Is used for handling user mouse activity over freezed frame.
+
+    Point2i preview_selected = Point2i(-1, -1);
+    Point2i preview_cursor = Point2i(-1, -1);
 
 private:
     const TFlowTrackerCfg::cfg_trck_dashboard* cfg;
 
     cv::Point2f frame_center;
     cv::Point2f frame_drag;
-    std::vector<draw::Prim> instr_prims;
 
     // TODO: rework to openGL vertexes
     cv::Mat fig_compass_raw;     // Compass template - line 
@@ -82,7 +108,6 @@ private:
     int grid_sector_ext = 0;      // Grid's sector extension in percent
     std::vector<int> grid_follow_marks;
     std::vector<int> grid_sectors_idx;
-    cv::Rect2f grid_sector;
 
 };
 

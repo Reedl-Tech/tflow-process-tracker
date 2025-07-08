@@ -17,7 +17,6 @@
 #include <sys/mman.h>
 
 #include <jpeglib.h>
-#include "tracker/tflow-trck-imu.hpp"
 
 class MJPEGCapture
 {
@@ -33,10 +32,13 @@ public:
         uint32_t tv_sec;      // Local timestamp (struct timeval)
         uint32_t tv_usec;     // Local timestamp
         uint32_t log_ts;      // Timestamp received from AP
-        int32_t roll;
-        int32_t pitch;
-        int32_t yaw;
-        int32_t altitude;
+        int32_t roll;         // In degrees * 100
+        int32_t pitch;        // In degrees * 100
+        int32_t yaw;          // In degrees * 100
+        int32_t altitude;     // In meters * 100 ?
+        int32_t pos_x;
+        int32_t pos_y;
+        int32_t pos_z;
     };
 #pragma pack(pop)
 #endif
@@ -52,7 +54,12 @@ public:
     fpos_t offset_pos;
     int offset_frame;
 
-    TFlowImu::flyn_imu_v0 in_imu_v2;      // RT.2 contains IMU_v2 which isn't stored in frame info, thus addition memory needs to be allocated
+    int aux_data_len;
+    char aux_data_in[1024];
+/*
+    TFlowImu::ap_imu_v2 in_imu_v2;      // RT.2 contains IMU_v2 which isn't stored in frame info, thus addition memory needs to be allocated
+    TFlowImu::ap_imu_v2 in_imu_v3;      // RT.2 contains IMU_v3 which isn't stored in frame info, thus addition memory needs to be allocated
+*/
 
     int setup(int buffs_num);
     void clean();
@@ -86,7 +93,6 @@ private:
     struct jpeg_decompress_struct   cinfo = { 0 };
     struct jpeg_error_mgr           jerr = { 0 };
 
-
     unsigned char* in_buff;
     uint32_t                        in_buff_size_max;
 
@@ -114,7 +120,10 @@ public:
         REWIND
     };
     
-    TFlowPlayer(TFlowProcess* app, MainContextPtr context, const TFlowCtrlProcess::cfg_player* cfg, int buffs_num);
+    TFlowPlayer(TFlowProcess* app, MainContextPtr context, const TFlowCtrlProcess::cfg_player* cfg, int buffs_num,
+            std::function<void(std::shared_ptr<TFlowBufPck> sp_pck)> app_onFrame,
+            std::function<void()> app_onSrcReady,
+            std::function<void()> app_onSrcGone);
     ~TFlowPlayer();
     
     TFlowProcess* app;
@@ -165,6 +174,15 @@ public:
     int is_off_state()   { return (0 == strcmp(curr_state, off_str  )); }
 
     int rewind(int new_frame) { return (new_frame != mjpegCapture.curr_frame) ? mjpegCapture.rewind(new_frame) : 0; }
+
+    std::function<void(std::shared_ptr<TFlowBufPck> sp_pck)> app_onFrame;
+    std::function<void()> app_onSrcReady;
+    std::function<void()> app_onSrcGone;
+
+    // TODO: Add linux file name validation
+    const char* player_fname_get() { return player_fname_is_valid(cfg->file_name.v.str) ? cfg->file_name.v.str : ""; }
+    int player_fname_is_valid(const char *file_name) { return (file_name != nullptr && file_name[0] != '\0'); }     // Is used to compare both existing configuration and user input
+
 private:
 
     void setCurrentState(const char* new_state) { curr_state = new_state; }

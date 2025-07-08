@@ -21,6 +21,7 @@
 #include <opencv2/gapi.hpp>
 #include <opencv2/gapi/render.hpp>
 
+#include "tflow-btc.hpp"
 #include "tflow-process.hpp"
 
 using namespace json11;
@@ -121,6 +122,7 @@ TFlowProcess::TFlowProcess(MainContextPtr _context, const std::string cfg_fname)
     buf_cli = nullptr;
     player = nullptr;
     fifo_streamer = nullptr;    // Created on SrcReady Player or buf_cli
+    btc_comm = nullptr;
 
     // Get OpenCL configuration from config
     setOpenCL(ctrl.cmd_flds_config.opencl.v.num);
@@ -184,6 +186,10 @@ bool TFlowProcess::onIdle()
     }
 
     ctrl.ctrl_srv.onIdle(now_ts);
+
+    if (btc_comm) {
+        btc_comm->onIdle(now_ts);
+    }
 
     return true;
 }
@@ -269,12 +275,10 @@ int TFlowProcess::setVideoSrc(const char* video_src)
     }
     else if (video_src && strcmp(video_src, "playback") == 0) {
         if (!player) {
-            player = new TFlowPlayer(this, context, &ctrl.cmd_flds_cfg_player, 4);
-#if 0
-            // TODO: replace TFlowProcess reference within Player for a callback, like for buf_clli
-            std::bind(&TFlowProcess::onFrame, this, std::placeholders::_1),             // TFlowBufCli::app_onFrame()
-            std::bind(&TFlowProcess::onSrcReadyPlayer, this, std::placeholders::_1),    // TFlowBufCli::app_onSrcReady()
-#endif
+            player = new TFlowPlayer(this, context, &ctrl.cmd_flds_cfg_player, 4,
+                std::bind(&TFlowProcess::onFrame,          this, std::placeholders::_1),   // TFlowPlayer::app_onFrame()
+                std::bind(&TFlowProcess::onSrcReadyPlayer, this),                          // TFlowPlayer::app_onSrcReady()
+                std::bind(&TFlowProcess::onSrcGone,        this));                         // TFlowPlayer::app_onSrcGone()
         }
     }
 
@@ -372,6 +376,8 @@ void TFlowProcess::onSrcReady()
     //    0);
 #endif
 
+    btc_comm = new TFlowBtc(context,
+                std::bind(&TFlowProcess::onBtcMsg, this, std::placeholders::_1));
 }
 
 
@@ -548,4 +554,45 @@ void TFlowStreamerProcess::onIdleStreamer(struct timespec now_ts)
     TFlowBufSrv::onIdle(now_ts);
 #endif
 }
+                                
+void TFlowProcess::onBtcMsg(const char *btc_msg)
+{
+    int event = 0;
+    int flags = 0;
 
+    // Called from TFlowBtC via call back on UDP message reception
+    // Converts btc_msg to internal TFlowTracker format
+    TFlowBtc::btc_remote_pointer *cursor = (TFlowBtc::btc_remote_pointer*)btc_msg;
+
+    if (cursor->ldown != btc_comm->prev_cursor.ldown) {
+        if (cursor->ldown) {
+            // Left button down _event_
+            event = EVENT_LBUTTONDOWN;
+        }
+        else {
+            // Left button up _event_
+            event = EVENT_LBUTTONUP;
+        }
+    }
+    else if (cursor->rdown != btc_comm->prev_cursor.rdown) {
+        if (cursor->rdown) {
+            // Right button down _event_
+            event = EVENT_RBUTTONDOWN;
+        }
+        else {
+            // Right button up _event_
+            event = EVENT_RBUTTONUP;
+        }
+    }
+    else {
+        // Buttons state not changed
+        event = EVENT_MOUSEMOVE;
+    }
+    btc_comm->prev_cursor = *cursor;
+
+    flags |= cursor->rdown ? EVENT_FLAG_RBUTTON : 0;
+    flags |= cursor->ldown ? EVENT_FLAG_LBUTTON : 0;
+    algo->onPointer(event, cursor->x, cursor->y, flags);    
+
+
+}

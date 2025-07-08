@@ -53,6 +53,8 @@
     <ClCompile Include="..\tracker\tflow-trck-if.cpp">
       <Filter>Tracker</Filter>
     </ClCompile>
+    <ClCompile Include="..\tflow-btc.cpp" />
+    <ClCompile Include="..\tflow-pwm.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\tracker\tflow-trck.hpp">
@@ -107,6 +109,9 @@
     <ClInclude Include="..\tracker\tflow-trck-imu.hpp" />
     <ClInclude Include="..\tflow-ctrl-process.hpp" />
     <ClInclude Include="buildin.h" />
+    <ClInclude Include="..\tflow-btc.hpp" />
+    <ClInclude Include="..\tflow-ctrl-process-ui.hpp" />
+    <ClInclude Include="..\tflow-pwm.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\.gitignore" />

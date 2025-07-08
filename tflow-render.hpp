@@ -3,7 +3,7 @@
 
 extern const cv::Scalar blue;
 extern const cv::Scalar cyan;
-extern const cv::Scalar viol;
+extern const cv::Scalar violet;
 extern const cv::Scalar red;
 extern const cv::Scalar yellow;
 extern const cv::Scalar orange;
