@@ -1,0 +1,49 @@
+{
+  "mv_cfg": {
+    "opencl": 1,
+    "video_src": "live",
+    "player": {
+      "file_name": "",
+      "frame_offset": 0
+    },
+    "algo": {
+      "Tracker": {
+        "max_features_per_cell": 1,
+        "max_gftt_cells": 9,
+        "new_feat_min_dist": 600,
+        "sparce_min_dist": 600,
+        "pyr_win_size": 33,
+        "pyr_max_lvl": 2,
+        "optf_win_size": 33,
+        "optf_term_crit_type": 3,
+        "optf_term_crit_cnt": 20,
+        "optf_term_crit_eps": 0.03,
+        "optf_flags": 0,
+        "optf_min_eig_thr": 0.001,
+        "frame_rate_limit": 30,
+        "dbg_render": 255,
+        "gftt": {
+          "max_corner": 1,
+          "qual_lvl": 0.5,
+          "min_dist": 600,
+          "block_size": 21,
+          "qlt_block_size": 32,
+          "gradient_size": 15,
+          "use_harris": 0,
+          "harris_k": 0.04,
+          "render_dbg": 0
+        },
+        "perf_mon": {
+          "dbg_render": 0,
+          "lbl_x": 250,
+          "lbl_y": 230
+        },
+        "dashboard": {
+          "main_win_w": 384,
+          "main_win_h": 288
+        }
+      }
+    }
+  }
+}
+
