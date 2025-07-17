@@ -552,11 +552,11 @@ void TFlowTrackerDashboard::instrRender()
     instrRenderAltitude(instr_prims, center1, (float)imu.altitude_baro);
 }
 
-void TFlowTrackerDashboard::getDashboardFrameSize(float* w, float* h)
+void TFlowTrackerDashboard::getDashboardFrameSize(int *w, int *h)
 {
     if (w && h) {
-        *w = (float)frameMain.cols; // dashboard.frame_size.width;
-        *h = (float)frameMain.rows; // dashboard.frame_size.height;
+        *w = frameMain.cols; // dashboard.frame_size.width;
+        *h = frameMain.rows; // dashboard.frame_size.height;
     }
 }
 

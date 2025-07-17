@@ -78,7 +78,7 @@ int MJPEGCapture::decompressNext(int buff_idx, int *error)
         // RT.2 contains IMU_v2. Read IMU data into the dedicated var.
         aux_data_len = frame_info.v2.aux_data_len;
         if (frame_info.v2.aux_data_len > 0) {
-            assert(sizeof(aux_data_in) < frame_info.v2.aux_data_len );
+            assert(sizeof(aux_data_in) > frame_info.v2.aux_data_len );
             res = fread(&aux_data_in, 1, frame_info.v2.aux_data_len, f);
         }
 #if 0
@@ -89,7 +89,7 @@ int MJPEGCapture::decompressNext(int buff_idx, int *error)
                 return -1;
             }
         }
-        else if (*(uint32_t*)&in_imu_v3.sign == 0x33554D49) {              // IMU2 => IMU_v2
+        else if (*(uint32_t*)&in_imu_v3.sign == 0x33554D49) {              // IMU3 => IMU_v3
             if (frame_info.v2.aux_data_len != sizeof(in_imu_v3)) {
                 g_warning("Bad IMUv3 len %d, %ld expected\r\n", 
                     frame_info.v2.aux_data_len, sizeof(in_imu_v3));

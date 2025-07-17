@@ -66,7 +66,7 @@ public:
     TFlowBufPck::pck& getMsg(int* msg_len);                     // Returns the message to send back.
 
     /* Dashboard specific Algo overrides */
-    void getDashboardFrameSize(float* w, float* h)
+    void getDashboardFrameSize(int* w, int* h)
         { dashboard.getDashboardFrameSize(w, h); };
     void getDashboardFrameBuff(const uint8_t** buff, size_t* buff_len)
         { dashboard.getDashboardFrameBuff(buff, buff_len); };

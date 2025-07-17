@@ -55,8 +55,8 @@ public:
     };
 
     struct uictrl {
-        const char *name = nullptr;
         const char *label = nullptr;
+        int label_pos = 0;          // 0 - top, 1 - left
         UICTRL_TYPE type = NONE;
         int size = 10;
         int state = 1;      // 1 - enabled; 0 - disabled; -1 - excluded from UI
@@ -85,6 +85,11 @@ public:
         .type = TFlowCtrlUI::UICTRL_TYPE::EDIT,
     };
 
+    struct uictrl ui_ll_edit_def = {
+        .label_pos = 1,
+        .type = TFlowCtrlUI::UICTRL_TYPE::EDIT,
+    };
+
     // Default BUTTON UI definition
     struct uictrl ui_butt_def = {
         .type = TFlowCtrlUI::UICTRL_TYPE::BUTTON,
@@ -92,6 +97,11 @@ public:
 
     // Default SWITCH UI definition (aka checkbox)
     struct uictrl ui_switch_def = {
+        .type = TFlowCtrlUI::UICTRL_TYPE::SWITCH,
+    };
+
+    struct uictrl ui_ll_switch_def = {
+        .label_pos = 1,
         .type = TFlowCtrlUI::UICTRL_TYPE::SWITCH,
     };
 };
@@ -161,13 +171,13 @@ public:
     static void setFieldStr(tflow_cmd_field_t *str_field, const char* value);
     
     static void addCtrl(const tflow_cmd_field_t *cmd_fld, json11::Json::array &j_ctrl_out_arr);
-    static void addCtrlEdit    (const tflow_cmd_field_t *cmd_fld, const char *label, int state, const char *val, int fld_size, json11::Json::object &j_out_params);
-    static void addCtrlSwitch  (const tflow_cmd_field_t *cmd_fld, const char *label, int state, int val, json11::Json::object &j_out_params);      // Switch don't have size as it is defined by UI
-    static void addCtrlButton  (const tflow_cmd_field_t *cmd_fld, const char *label, int state, int fld_size, json11::Json::object &j_out_params);         // Button don't have value as it is always 0
-    static void addCtrlDropdown(const tflow_cmd_field_t *cmd_fld, const char *label, int state, int fld_size, const char *val, const uictrl_dropdown &dropdown, json11::Json::object &j_out_params);
-    static void addCtrlSlider  (const tflow_cmd_field_t *cmd_fld, const char *label, int state, int fld_size, int val, const uictrl_slider &slider, json11::Json::object &j_out_params);
-    static void addCtrlSlider2 (const tflow_cmd_field_t *cmd_fld, const char *label, int state, int fld_size, const std::vector<int> *val, const uictrl_slider &slider, json11::Json::object &j_out_params);
-    static void addCtrlRef     (const char *name, const char *label, json11::Json::array &j_ref_ctrls, json11::Json::object &j_out_params);
+    static void addCtrlEdit    (const tflow_cmd_field_t *cmd_fld, const char *ui_label, const char *val, json11::Json::object &j_out_params);
+    static void addCtrlSwitch  (const tflow_cmd_field_t *cmd_fld, const char *ui_label, json11::Json::object &j_out_params);      // Switch don't have size as it is defined by UI
+    static void addCtrlButton  (const tflow_cmd_field_t *cmd_fld, const char *ui_label, json11::Json::object &j_out_params);         // Button don't have value as it is always 0
+    static void addCtrlDropdown(const tflow_cmd_field_t *cmd_fld, const char *ui_label, json11::Json::object &j_out_params);
+    static void addCtrlSlider  (const tflow_cmd_field_t *cmd_fld, const char *ui_label, json11::Json::object &j_out_params);
+    static void addCtrlSlider2 (const tflow_cmd_field_t *cmd_fld, const char *ui_label, json11::Json::object &j_out_params);
+    static void addCtrlRef     (const tflow_cmd_field_t *cmd_fld, const char *ui_label, json11::Json::array &j_ref_ctrls, json11::Json::object &j_out_params);
 
     int collectCtrls(const tflow_cmd_field_t *cmd_fld, json11::Json::array &j_out_params);
     virtual void collectCtrlsCustom(UICTRL_TYPE custom_type, const tflow_cmd_field_t* cmd_fld, json11::Json::array& j_out_params) {};

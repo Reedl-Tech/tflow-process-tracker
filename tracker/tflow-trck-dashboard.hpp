@@ -25,7 +25,7 @@ public:
     void initDashboardFrame(uint8_t* data_ptr);
     void initDashboardFrame();
     void getDashboardFrameBuff(const uint8_t** buff, size_t* buff_len);
-    void getDashboardFrameSize(float* w, float* h);
+    void getDashboardFrameSize(int* w, int* h);
     /* =============================== */
 
     int onConfigGrid(const std::string &grid_cfg);

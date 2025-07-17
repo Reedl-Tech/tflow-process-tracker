@@ -44,7 +44,7 @@ void TFlowCtrl::addCtrl(const tflow_cmd_field_t *cmd_fld, Json::array &j_ctrl_ou
     
     if (!ui_ctrl) return;
 
-    const char *ui_name = ui_ctrl->label ? ui_ctrl->label : cmd_fld->name;
+    const char *ui_label = ui_ctrl->label ? ui_ctrl->label : cmd_fld->name;
 
     switch ( ui_ctrl->type ) {
     case UICTRL_TYPE::NONE:
@@ -54,17 +54,17 @@ void TFlowCtrl::addCtrl(const tflow_cmd_field_t *cmd_fld, Json::array &j_ctrl_ou
             // Default STR -> EDIT control - Label from name, length from value capped to 20
             
             if ( cmd_fld->type == TFlowCtrl::CFT_STR ) {
-                addCtrlEdit(cmd_fld, ui_name, 1, cmd_fld->v.c_str, ui_ctrl->size, j_arr_entry);
+                addCtrlEdit(cmd_fld, ui_label, cmd_fld->v.c_str, j_arr_entry);
             }
             else if ( cmd_fld->type == TFlowCtrl::CFT_NUM ) {
                 char val_str [ 16 ];
                 snprintf(val_str, sizeof(val_str) - 1, "%d", cmd_fld->v.num);
-                addCtrlEdit(cmd_fld, ui_name, 1, val_str, ui_ctrl->size, j_arr_entry);
+                addCtrlEdit(cmd_fld, ui_label, val_str,  j_arr_entry);
             }
             else if ( cmd_fld->type == TFlowCtrl::CFT_DBL ) {
                 char val_str [ 16 ];
                 snprintf(val_str, sizeof(val_str) - 1, "%f", cmd_fld->v.dbl);
-                addCtrlEdit(cmd_fld, ui_name, 1, val_str, ui_ctrl->size, j_arr_entry);
+                addCtrlEdit(cmd_fld, ui_label, val_str, j_arr_entry);
             }
             else if ( cmd_fld->type == TFlowCtrl::CFT_REF || 
                       cmd_fld->type == TFlowCtrl::CFT_REF_SKIP ) {
@@ -72,19 +72,19 @@ void TFlowCtrl::addCtrl(const tflow_cmd_field_t *cmd_fld, Json::array &j_ctrl_ou
             }
         }
     case UICTRL_TYPE::SWITCH:
-        addCtrlSwitch(cmd_fld, ui_name, 1, !!cmd_fld->v.num, j_arr_entry);
+        addCtrlSwitch(cmd_fld, ui_label, j_arr_entry);
         break;
     case UICTRL_TYPE::BUTTON:
-        addCtrlButton(cmd_fld, ui_name, 1, ui_ctrl->size, j_arr_entry);
+        addCtrlButton(cmd_fld, ui_label, j_arr_entry);
         break;
     case UICTRL_TYPE::DROPDOWN:
-        addCtrlDropdown(cmd_fld, ui_name, 1, ui_ctrl->size, cmd_fld->v.c_str, ui_ctrl->dropdown, j_arr_entry);
+        addCtrlDropdown(cmd_fld, ui_label, j_arr_entry);
         break;
     case UICTRL_TYPE::SLIDER:
-        addCtrlSlider(cmd_fld, ui_name, 1, ui_ctrl->size, cmd_fld->v.num, ui_ctrl->slider, j_arr_entry);
+        addCtrlSlider(cmd_fld, ui_label, j_arr_entry);
         break;
     case UICTRL_TYPE::SLIDER2:
-        addCtrlSlider2(cmd_fld, ui_name, 1, ui_ctrl->size, cmd_fld->v.vnum, ui_ctrl->slider, j_arr_entry);
+        addCtrlSlider2(cmd_fld, ui_label, j_arr_entry);
         break;
     default:
         return;
@@ -93,44 +93,75 @@ void TFlowCtrl::addCtrl(const tflow_cmd_field_t *cmd_fld, Json::array &j_ctrl_ou
     j_ctrl_out_arr.emplace_back(j_arr_entry);
 }
 
-void TFlowCtrl::addCtrlRef(const char *name, const char *label, Json::array &j_ref_ctrls, Json::object &j_out_params)
+void TFlowCtrl::addCtrlRef(const tflow_cmd_field_t *cmd_fld, const char *ui_label, Json::array &j_ref_ctrls, Json::object &j_out_params)
 {
-    j_out_params.emplace("name", std::string(name));
-    j_out_params.emplace("label", std::string(label));
-    j_out_params.emplace("type", std::string("group"));
+    uictrl *ui_ctrl = cmd_fld->ui_ctrl;
+
+    j_out_params.emplace("name", cmd_fld->name);
+    j_out_params.emplace("label", ui_label);
+
+    j_out_params.emplace("state", 1);
+    j_out_params.emplace("type", "group");
     j_out_params.emplace("value", j_ref_ctrls);
 }
 
-void TFlowCtrl::addCtrlEdit(const tflow_cmd_field_t *cmd_fld, const char *label, int ui_state, const char *val, int fld_size, Json::object &j_out_params)
+void TFlowCtrl::addCtrlEdit(const tflow_cmd_field_t *cmd_fld, const char *label, const char *val, Json::object &j_out_params)
 {
-    j_out_params.emplace("name", std::string(cmd_fld->name));
-    j_out_params.emplace("label", std::string(label));
-    j_out_params.emplace("type",  std::string("edit"));
-    j_out_params.emplace("state", ui_state);
-    j_out_params.emplace("value", std::string(val ? val : "") );
-    j_out_params.emplace("size",  fld_size);
+    TFlowCtrl::uictrl *ui_ctrl = cmd_fld->ui_ctrl;
+
+    j_out_params.emplace("name", cmd_fld->name);
+
+    j_out_params.emplace(ui_ctrl->label_pos ? "leftLabel" : "label",
+        std::string(label));
+
+    j_out_params.emplace("state", ui_ctrl->state);
+    j_out_params.emplace("type",  "edit");
+    j_out_params.emplace("value", val ? val : "");
+    j_out_params.emplace("size",  ui_ctrl->size);
 }
 
-void TFlowCtrl::addCtrlSwitch(const tflow_cmd_field_t *cmd_fld, const char *label, int ui_state, int val, Json::object &j_out_params)
+void TFlowCtrl::addCtrlSwitch(const tflow_cmd_field_t *cmd_fld, const char *label, Json::object &j_out_params)
 {
-    j_out_params.emplace("name", std::string(cmd_fld->name));
-    j_out_params.emplace("label", std::string(label));
-    j_out_params.emplace("type",  std::string("switch"));
-    j_out_params.emplace("state", ui_state);
+    TFlowCtrl::uictrl *ui_ctrl = cmd_fld->ui_ctrl;
+     int val = !!cmd_fld->v.num;
+
+    j_out_params.emplace("name", cmd_fld->name);
+
+    j_out_params.emplace(ui_ctrl->label_pos ? "leftLabel" : "label",
+        std::string(label));
+
+    j_out_params.emplace("state", ui_ctrl->state);
+    j_out_params.emplace("type",  "switch");
     j_out_params.emplace("value", val );
 }
 
-void TFlowCtrl::addCtrlButton(const tflow_cmd_field_t *cmd_fld, const char *label, int ui_state, int fld_size, Json::object &j_out_params)
+void TFlowCtrl::addCtrlButton(const tflow_cmd_field_t *cmd_fld, const char *label, Json::object &j_out_params)
 {
-    j_out_params.emplace("name", std::string(cmd_fld->name));
-    j_out_params.emplace("label", std::string(label));
-    j_out_params.emplace("type",  std::string("button"));
-    j_out_params.emplace("state", ui_state);
-    j_out_params.emplace("size",  fld_size);
+    TFlowCtrl::uictrl *ui_ctrl = cmd_fld->ui_ctrl;
+
+    j_out_params.emplace("name", cmd_fld->name);
+
+    j_out_params.emplace(ui_ctrl->label_pos ? "leftLabel" : "label",
+        std::string(label));
+
+    j_out_params.emplace("state", ui_ctrl->state);
+    j_out_params.emplace("type",  "button");
+    j_out_params.emplace("size",  ui_ctrl->size);
 }
 
-void TFlowCtrl::addCtrlDropdown(const tflow_cmd_field_t *cmd_fld, const char *label, int ui_state, int fld_size, const char *val, const uictrl_dropdown &dropdown, json11::Json::object &j_out_params)
+void TFlowCtrl::addCtrlDropdown(const tflow_cmd_field_t *cmd_fld, const char *label, json11::Json::object &j_out_params)
 {
+    TFlowCtrl::uictrl *ui_ctrl = cmd_fld->ui_ctrl;
+    const uictrl_dropdown &dropdown = ui_ctrl->dropdown;
+    const char *val = cmd_fld->v.c_str;
+
+    j_out_params.emplace("name", cmd_fld->name);
+
+    j_out_params.emplace(ui_ctrl->label_pos ? "leftLabel" : "label",
+        std::string(label));
+
+    j_out_params.emplace("state", ui_ctrl->state);
+
     Json::array j_dropdown_arr;
     // Input dropdown value is a nullterminated array of (const char*) entries.
     // In the output array the 1st element is current value, all others dropdown 
@@ -139,15 +170,15 @@ void TFlowCtrl::addCtrlDropdown(const tflow_cmd_field_t *cmd_fld, const char *la
     if ( cmd_fld->type == CFT_NUM ) {
         char val_str [ 16 ];
         snprintf(val_str, sizeof(val_str) - 1, "%d", cmd_fld->v.num);
-        j_dropdown_arr.emplace_back(std::string(val_str));
+        j_dropdown_arr.emplace_back(val_str);
     }
     else if ( cmd_fld->type == CFT_DBL ) {
         char val_str [ 16 ];
         snprintf(val_str, sizeof(val_str) - 1, "%f", cmd_fld->v.dbl);
-        j_dropdown_arr.emplace_back(std::string(val_str));
+        j_dropdown_arr.emplace_back(val_str);
     }
     else if (cmd_fld->type == CFT_STR) {
-        j_dropdown_arr.emplace_back(cmd_fld->v.c_str ? std::string(cmd_fld->v.c_str) : "");
+        j_dropdown_arr.emplace_back(cmd_fld->v.c_str ? cmd_fld->v.c_str : "");
     }
     else {
         return;
@@ -155,60 +186,59 @@ void TFlowCtrl::addCtrlDropdown(const tflow_cmd_field_t *cmd_fld, const char *la
 
     const char **val_list = dropdown.val;
     while ( *val_list ) {
-        j_dropdown_arr.emplace_back(std::string(*val_list++));
+        j_dropdown_arr.emplace_back(*val_list++);
     }
 
-    j_out_params.emplace("name", std::string(cmd_fld->name));
-    j_out_params.emplace("label", std::string(label));
-    j_out_params.emplace("type",  std::string("dropdown"));
-    j_out_params.emplace("state", ui_state);
-    j_out_params.emplace("size",  fld_size);
+    j_out_params.emplace("type",  "dropdown");
+    j_out_params.emplace("size",  ui_ctrl->size);
     j_out_params.emplace("value", j_dropdown_arr);
 }
 
-void TFlowCtrl::addCtrlSlider(const tflow_cmd_field_t *cmd_fld, const char *label, int ui_state, int fld_size, int val, const uictrl_slider &slider, json11::Json::object &j_out_params)
+void TFlowCtrl::addCtrlSlider(const tflow_cmd_field_t *cmd_fld, const char *label, json11::Json::object &j_out_params)
 {
-    j_out_params.emplace("name", std::string(cmd_fld->name));
-    j_out_params.emplace("label", std::string(label));
-    j_out_params.emplace("type",  std::string("slider"));
-    j_out_params.emplace("state", ui_state);
-    j_out_params.emplace("size",  fld_size);
+    TFlowCtrl::uictrl *ui_ctrl = cmd_fld->ui_ctrl;
+    const uictrl_slider &slider = ui_ctrl->slider;
+
+    j_out_params.emplace("name", cmd_fld->name);
+
+    j_out_params.emplace(ui_ctrl->label_pos ? "leftLabel" : "label",
+        std::string(label));
+
+    j_out_params.emplace("state", ui_ctrl->state);
+
+    j_out_params.emplace("type",  "slider");
+    j_out_params.emplace("size",  ui_ctrl->size);
 
     Json::array j_dropdown_arr;
     
-    j_dropdown_arr.emplace_back(val);
+    j_dropdown_arr.emplace_back(cmd_fld->v.num);
     j_dropdown_arr.emplace_back(slider.min);
     j_dropdown_arr.emplace_back(slider.max);
 
     j_out_params.emplace("value", j_dropdown_arr);
 }
 
-void TFlowCtrl::addCtrlSlider2(const tflow_cmd_field_t *cmd_fld, const char *label, int ui_state, int fld_size, const std::vector<int> *val, const uictrl_slider &slider, json11::Json::object &j_out_params)
+void TFlowCtrl::addCtrlSlider2(const tflow_cmd_field_t *cmd_fld, const char *label, json11::Json::object &j_out_params)
 {
-    j_out_params.emplace("name", std::string(cmd_fld->name));
-    j_out_params.emplace("label", std::string(label));
-    j_out_params.emplace("type",  std::string("slider2"));
-    j_out_params.emplace("state", ui_state);
+    TFlowCtrl::uictrl *ui_ctrl = cmd_fld->ui_ctrl;
+    const uictrl_slider &slider = ui_ctrl->slider;
 
-    if (fld_size == -1) {
-        j_out_params.emplace("size", "full");
-    }
-    else {
-        j_out_params.emplace("size", fld_size);
-    }
+    j_out_params.emplace("name", cmd_fld->name);
 
-    Json::array j_dropdown_arr;
+    j_out_params.emplace(ui_ctrl->label_pos ? "leftLabel" : "label", label);
 
-    assert(val->size() == 2);
-    int val1 = val->at(0);
-    int val2 = val->at(1);
+    j_out_params.emplace("state", ui_ctrl->state);
 
-    j_dropdown_arr.emplace_back(val1);
-    j_dropdown_arr.emplace_back(val2);
-    j_dropdown_arr.emplace_back(slider.min);
-    j_dropdown_arr.emplace_back(slider.max);
+    j_out_params.emplace("type",  "slider2");
+    j_out_params.emplace("size",  ui_ctrl->size);
 
-    j_out_params.emplace("value", j_dropdown_arr);
+    Json::array j_slider_arr;
+
+    j_slider_arr.emplace_back(cmd_fld->v.num);
+    j_slider_arr.emplace_back(slider.min);
+    j_slider_arr.emplace_back(slider.max);
+
+    j_out_params.emplace("value", j_slider_arr);
 }
 
 void TFlowCtrl::_getSignResponse(const tflow_cmd_t* cmd_p, Json::object& j_params)
@@ -496,6 +526,7 @@ int TFlowCtrl::setField(tflow_cmd_field_t* cmd_field, const Json& cfg_param)
                 int i = 0;
                 for (auto& j_v : j_arr) {
                     cmd_field->v.vnum->at(i++) = j_v.int_value();
+                    cmd_field->flags |= FIELD_FLAG::CHANGED;
                 }
             }
         }
@@ -684,7 +715,7 @@ int TFlowCtrl::collectCtrls(const tflow_cmd_field_t *cmd_fld, Json::array &j_out
                 Json::object j_ctrl_params;
                 const char *label = cmd_fld->ui_ctrl->label ? cmd_fld->ui_ctrl->label : cmd_fld->name;
                 collectCtrls(cmd_fld_ref_hdr + 1, j_ctrl_ref_arr);  // +1 to skip header
-                addCtrlRef(cmd_fld->name, label, j_ctrl_ref_arr, j_ctrl_params);
+                addCtrlRef(cmd_fld, label, j_ctrl_ref_arr, j_ctrl_params);
                 j_out_ctrl_arr.emplace_back(j_ctrl_params);
             }
         }

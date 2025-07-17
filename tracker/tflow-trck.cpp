@@ -715,8 +715,10 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
     perf_mon.tickStart();
 
     if (features.size() == 0) {
-        // Move to center??
-        servo_pitch.move_set(TFlowPWM::MOVE_DIR::STOP, 0.1);
+        // ?? Move to center??
+        // STOP and Release speeed control.
+        // Speed == 0 means use speed from configuration
+        servo_pitch.move_set(TFlowPWM::MOVE_DIR::STOP, 0.);
     }
     // Move selected feature to center
     for (auto& pair : features) {

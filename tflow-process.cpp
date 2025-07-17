@@ -181,6 +181,13 @@ bool TFlowProcess::onIdle()
         }
     }
 
+    if (!buf_cli && !player) {
+        static int presc_cnt = 0;
+        if ((++presc_cnt & 0x1f) == 0) {
+            g_info("Doing nothing... waiting for video src");
+        }
+    }
+
     if (streamer) {
         streamer->onIdleStreamer(now_ts);
     }

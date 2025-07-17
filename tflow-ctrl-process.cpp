@@ -93,6 +93,9 @@ void TFlowCtrlSrvProcess::onTFlowCtrlMsg(const string& cmd, const Json& j_in_par
 void TFlowCtrlSrvProcess::onSignature(Json::object& j_out_params, int& err)
 {
     err = 0;
+    // TODO: Rework this getSignResponse call - now it is supposed for 
+    //       WEB UI, but not for internal communication. I.e. local modules
+    //       don't care about UI control.
     ctrl_process.getSignResponse(j_out_params);
     return;
 }
@@ -344,9 +347,9 @@ int TFlowCtrlProcess::cmd_cb_cfg_player(const Json& j_in_params, Json::object& j
         app.player->player_state_flag.v == Flag::FALL ||
         app.player->player_state_flag.v == Flag::UNDEF) {
 
-        // player is in intermediate state
-        // Send "wait" response
-        return -3;
+        j_out_params.emplace("state", std::string("wait"));
+        j_out_params.emplace("note", std::string("wait"));
+        return 0;
     }
 
     // player is down (probably due to error in files IOs
