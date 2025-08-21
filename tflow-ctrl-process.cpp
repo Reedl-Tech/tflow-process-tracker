@@ -307,7 +307,7 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
         app.setVideoSrc(cmd_flds_config.video_src.v.str);
     }
 
-    if (app.algo && cmd_flds_config.algo.flags & FIELD_FLAG::CHANGED_STICKY) {
+    if (app.algo && cmd_flds_config.algo.flags & FIELD_FLAG::CHANGED) {
         // Note: in/out params are not in use so far, but in theory, Algo may
         // add some specific outputs and use original input Json object.
         app.algo->onConfig(j_in_params, j_out_params);

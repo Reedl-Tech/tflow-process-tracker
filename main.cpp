@@ -1,7 +1,7 @@
-#include <giomm.h>
-#include <glib-unix.h>
 #include <thread>
 #include <signal.h>
+
+#include "tflow-glib.hpp"
 
 #include "tflow-process.hpp"
 
@@ -17,24 +17,14 @@ gboolean handle_signal(gpointer ctx)
     return true;
 }
 
-gboolean handle_signal_(gpointer ctx)
+void getConfigFilename(int argc, char *argv, std::string cfg_fname)
 {
-    g_info("Got INT or TERM signal, terminating...");
-
-    TFlowProcess* app = (TFlowProcess*)ctx;
-    app->main_loop->quit();
-
-    return true;
-}
-
-void getConfigFilename(int argc, char* argv, std::string cfg_fname)
-{
-    if (argc > 1) {
+    if ( argc > 1 ) {
         std::string config_fname_in(argv);
         struct stat sb;
         int cfg_fd = open(config_fname_in.c_str(), O_RDWR);
 
-        if (cfg_fd == -1 || fstat(cfg_fd, &sb) < 0 || !S_ISREG(sb.st_mode)) {
+        if ( cfg_fd ==  -1 || fstat(cfg_fd, &sb) < 0 || !S_ISREG(sb.st_mode)) {
             g_warning("Can't open configuration file %s. Will try to use default %s",
                 config_fname_in.c_str(), cfg_fname.c_str());
             return;
@@ -44,8 +34,11 @@ void getConfigFilename(int argc, char* argv, std::string cfg_fname)
 
 int main(int argc, char** argv)
 {
+    char env[] = "G_MESSAGES_DEBUG=all";
+    putenv(env);
+
     Gio::init();
-    
+
     g_info("TFlow Process started");
 
     std::string cfg_fname("/etc/tflow/tflow-process-tracker-config.json");
@@ -63,6 +56,7 @@ int main(int argc, char** argv)
 
     g_source_remove(int_id);
     g_source_remove(term_id);
+
     delete gp_app;
 
     g_info("TFlow Process Tracker exited");

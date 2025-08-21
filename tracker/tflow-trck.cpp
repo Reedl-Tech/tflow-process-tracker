@@ -35,9 +35,6 @@ namespace draw = cv::gapi::wip::draw;
 
 TFlowTrackerCfg tflow_trck_cfg;
 
-#define TWIN412_9p1mm   0
-#define COIN417G2_9p1mm 1
-
 /*****************************************************************************
         GFTT Cells  FLYN384
        .---------------------.       .---------------------.
@@ -74,16 +71,9 @@ TFlowTracker::TFlowTracker(
     in_frames(_in_frames),
 
 #if ATIC320_9p1mm
-//    sensor(Size(in_frames.at(0).cols, in_frames.at(0).rows), 28.1, 21.3, 7.8),
-    gftt((TFlowTrackerCfg::cfg_trck_gftt*)(_cfg->gftt.v.ref), in_frames.at(0).cols, in_frames.at(0).rows, 31, 30, 3, 3),
-
 #elif TWIN412_9p1mm
-//    sensor(Size(in_frames.at(0).cols, in_frames.at(0).rows), 29.1, 21.8, 9.1),
-//    gftt((TFlowCtrlProcess::cfg_trck_gftt*)(_cfg->gftt.v.ref), in_frames.at(0).cols, in_frames.at(0).rows, 39, 36, 3, 3),
-    gftt((TFlowTrackerCfg::cfg_trck_gftt*)(_cfg->gftt.v.ref), in_frames.at(0).cols, in_frames.at(0).rows, 21, 15, 3, 3),
-
-
 #elif COIN417G2_9p1mm
+#endif
 
     gftt_flytime(
         (TFlowTrackerCfg::cfg_trck_gftt_flytime*)(_cfg->gftt_flytime.v.ref),
@@ -93,14 +83,16 @@ TFlowTracker::TFlowTracker(
         (TFlowTrackerCfg::cfg_trck_gftt_flytime*)(_cfg->gftt_flytime.v.ref),
         (TFlowTrackerCfg::cfg_trck_gftt_preview*)(_cfg->gftt_preview.v.ref),
         in_frames.at(0).cols, in_frames.at(0).rows),
-#endif
+
     perf_mon((TFlowPerfMon::cfg_tflow_perfmon*)_cfg->perfmon.v.ref),
     servo_pitch((TFlowPWM::cfg_tflow_servo_cntrl*)_cfg->servo_pitch.v.ref),
-    dashboard((TFlowTrackerCfg::cfg_trck_dashboard*)_cfg->dashboard.v.ref, in_frames.at(0).cols, in_frames.at(0).rows)
+    dashboard((TFlowTrackerCfg::cfg_trck_dashboard*)_cfg->dashboard.v.ref, in_frames.at(0).cols, in_frames.at(0).rows),
+    tgt(in_frames.at(0).cols, in_frames.at(0).rows)
 {
     cfg = _cfg;
 
     frame_size = Size(in_frames.at(0).cols, in_frames.at(0).rows);
+    
     CleanUp();
 
     initGridRect(Rect(0, 0, frame_size.width, frame_size.height), grid0_sectors);
@@ -455,14 +447,7 @@ void TFlowTracker::featRespawn(const Mat &frame, const TFlowImu& imu)
 #if GFTT_MT
             (*gftt.sig_gftt_start)();
 #else
-
-        cv::Rect2f preview_rect = Rect2f(
-            (float)dashboard.preview_cursor.x - gftt_preview.cfg_preview->win_w.v.num / 2,
-            (float)dashboard.preview_cursor.y - gftt_preview.cfg_preview->win_h.v.num / 2,
-            (float)gftt_preview.cfg_preview->win_w.v.num, 
-            (float)gftt_preview.cfg_preview->win_h.v.num);
-
-            gftt_preview.preview_process();
+        gftt_preview.preview_process();
 #endif
 
     }
@@ -664,6 +649,8 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
     if (sp_pck_in || dashboard.preview_force_frame) {
 
         if (sp_pck_in) {
+            tgt.getData(sp_pck_in->d.consume.aux_data, sp_pck_in->d.consume.aux_data_len);
+
             TFlowBufPck::pck_consume* pck_curr = &sp_pck_in->d.consume;
             Mat& frame_curr = in_frames.at(pck_curr->buff_index);
             onFrameAlgo(frame_curr);
@@ -708,6 +695,144 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
     perf_mon.Render(dashboard.instr_prims);
 
     dashboard.render();
+}
+
+void TFlowTracker::targetSelection()
+{
+    gftt_preview.fov_rect= Rect2f(
+        tgt.cursor_x - gftt_preview.cfg_preview->win_w.v.num / 2,
+        tgt.cursor_y - gftt_preview.cfg_preview->win_h.v.num / 2,
+        (float)gftt_preview.cfg_preview->win_w.v.num, 
+        (float)gftt_preview.cfg_preview->win_h.v.num);
+
+    switch (tgt.getMode()){
+    case 0:
+        // Targeting disabled - regular features respawn
+        featRespawn((*pyr_curr)[0], imu);
+        break;
+    case 1:
+    {
+        // Start
+        // 
+        // Remove all other feature
+        for_each(features.begin(), features.end(), [](std::pair<const int, TFlowFeature> &pair) {
+            auto &feat = pair.second;
+            feat.is_out_of_fov = 1;
+            });
+
+        // TODO: Q: should it be empty on init? GFTT should selects new ones?
+        for (auto &pair : features_preview) {
+            TFlowFeature &feat = pair.second;
+            if (feat.is_preview_sel) {
+                feat.is_preview = 0;
+                feat.is_preview_sel = 0;
+                feat.is_new = 1;
+                features.insert(pair);
+            }
+        }
+
+        break;
+    }
+    case 2:
+    {
+        // Targeting enabled - Process feature selection button events and
+        // Respawn "preview" features.
+        uint16_t event = tgt.getEvent();
+        if (event) targetOnButtEvent(event);
+
+        featPreviewRespawn((*pyr_curr)[0], imu);
+        break;
+    }
+    case 3:
+    {
+        // Finalize
+        // Remove all previous feature
+        for_each(features.begin(), features.end(), [](std::pair<const int, TFlowFeature> &pair) {
+            auto &feat = pair.second;
+            feat.is_out_of_fov = 1;
+            });
+
+        // Transfer selected preview feature(s) to regulars
+        for (auto &pair : features_preview) {
+            TFlowFeature &feat = pair.second;
+            if (feat.is_preview_sel) {
+                feat.is_preview = 0;
+                feat.is_preview_sel = 0;
+                feat.is_new = 1;
+                features.insert(pair);
+            }
+        }
+        features_preview.clear();
+        break;
+    }
+    }
+     
+}
+void TFlowTracker::targetOnButtEvent(uint16_t event)
+{
+#define MILESI_TRGT_SEL_UP         (1 << 11)
+#define MILESI_TRGT_SEL_DOWN       (1 << 12)
+#define MILESI_TRGT_SEL_LEFT       (1 << 13)
+#define MILESI_TRGT_SEL_RIGHT      (1 << 14)
+
+    TFlowFeature *feat_selected = nullptr;
+    TFlowFeature *feat_close = nullptr;
+
+    // Get currently selected feature;
+    for (auto &pair : features_preview) {
+        feat_selected = &pair.second;
+        if (feat_selected->is_preview_sel) {
+            feat_selected->is_preview_sel = 0;
+            break;
+        }
+    }
+    
+    if (feat_selected == nullptr) {
+        // no  features
+        return;
+    }
+
+    feat_close = feat_selected;
+    float diff_close = 1000.f;
+        //event & (MILESI_TRGT_SEL_UP   | MILESI_TRGT_SEL_LEFT)  ?  1000.f : 
+        //event & (MILESI_TRGT_SEL_DOWN | MILESI_TRGT_SEL_RIGHT) ? -1000.f : 0;
+
+    for (auto &pair : features_preview) {
+        TFlowFeature &feat = pair.second;
+
+        if (&feat == feat_selected) continue;
+
+        Point2f pos_diff =  feat_selected->pos - feat.pos;
+        switch (event) {
+        case MILESI_TRGT_SEL_UP:
+            if (pos_diff.y > 0 && pos_diff.y < diff_close) {
+                feat_close =  &feat;
+                diff_close = pos_diff.y;
+            }
+            break;
+        case MILESI_TRGT_SEL_DOWN:
+            if (pos_diff.y < 0 && abs(pos_diff.y) < diff_close) {
+                feat_close =  &feat;
+                diff_close = abs(pos_diff.y);
+            }
+            break;
+        case MILESI_TRGT_SEL_LEFT:
+            if (pos_diff.x > 0 && pos_diff.x < diff_close) {
+                feat_close =  &feat;
+                diff_close = pos_diff.x;
+            }
+            break;
+        case MILESI_TRGT_SEL_RIGHT:
+            if (pos_diff.x < 0 && abs(pos_diff.x) < diff_close) {
+                feat_close =  &feat;
+                diff_close = abs(pos_diff.x);
+            }
+            break;
+        }
+    }
+
+    feat_close->is_preview_sel = 1;
+
 }
 
 void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
@@ -772,7 +897,12 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
 
     std::vector<TFlowFeature*> feat_to_track;
 
+    targetSelection();
+
+    featPurge();
+
     // Update Preview Rectangle according to user cursor position
+#if BTC
     gftt_preview.fov_rect= Rect2f(
         (float)dashboard.preview_cursor.x - gftt_preview.cfg_preview->win_w.v.num / 2,
         (float)dashboard.preview_cursor.y - gftt_preview.cfg_preview->win_h.v.num / 2,
@@ -804,6 +934,7 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
     if (dashboard.preview_mode == 0 && !features_preview.empty()) {
         features_preview.clear();
     }
+#endif
 
     featChoose(feat_to_track);
     featUpdate(*pyr_curr, *pyr_prev, feat_to_track);
@@ -816,7 +947,7 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
 
     // Let's run only one GFTT at a time - either preview or flytime, just to
     // simplify pyramid switching sequence
-
+#if BTC
     if (dashboard.preview_mode > 0) {
         if (dashboard.preview_mode == 2) {
             // Active feature selection
@@ -827,6 +958,14 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
     else {
         // featRespawn((*pyr_curr)[0], imu);
     }
+    if (dashboard.preview_mode > 0) {
+        featPreviewRespawn((*pyr_curr)[0], imu);
+    }
+    else {
+        // featRespawn((*pyr_curr)[0], imu);
+    }
+#endif 
+
     featSparse();
     featCleanup();
     featPreviewCleanup();
@@ -845,7 +984,7 @@ int TFlowTracker::onConfig(const json11::Json& j_in_params, json11::Json::object
     std::string del_me = j_in_params.dump();
 
     // TFlowCtrl
-    if (cfg->servo_pitch.flags & TFlowCtrl::FIELD_FLAG::CHANGED_STICKY) {
+    if (cfg->servo_pitch.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
         // Note: in/out params are not in use so far, but in theory, Algo may
         // add some specific outputs and use original input Json object.
         servo_pitch.onConfig();
@@ -916,15 +1055,15 @@ void TFlowTracker::renderPitchHold(vector<draw::Prim>& prims)
 
 void TFlowTracker::renderPreviewCursor(vector<draw::Prim>& prims)
 {
-    //Point2f preview_cursor = Point2f(
-    //    (float)dashboard.preview_cursor.x, (float)dashboard.preview_cursor.y);
-    //Point2i preview_cursor = Point2i(
-    //    dashboard.preview_cursor.x + dashboard.frameCamRect.x,
-    //    dashboard.preview_cursor.y + dashboard.frameCamRect.y);
-
+#if BTC
     int preview_mode = dashboard.preview_mode;
     Point2i preview_cursor = dashboard.preview_cursor;
-    
+#endif
+
+
+    int preview_mode = tgt.last_targeting_en;
+    Point2i preview_cursor = Point2i(tgt.cursor_x, tgt.cursor_y);
+
     if (preview_mode == 0) return;
 
     const int cross_size = 5;
@@ -938,6 +1077,7 @@ void TFlowTracker::renderPreviewCursor(vector<draw::Prim>& prims)
         {preview_cursor.x, preview_cursor.y + cross_size},
         blue});
 
+#if BTC
     if (preview_mode == 2) {
         // Active feature selection
         Point2i offset = Point2i(1,1);
@@ -951,7 +1091,7 @@ void TFlowTracker::renderPreviewCursor(vector<draw::Prim>& prims)
             {preview_cursor.x, preview_cursor.y + cross_size},
             cyan});
     }
-
+#endif 
 }
 
 void TFlowTracker::renderGrid(vector<draw::Prim>& prims)
@@ -1001,7 +1141,7 @@ void TFlowTracker::RenderDebugInfo(Mat& frame)
          (int)TFlowFeature::RenderDbg::QUALITY      |
         0);
 
-    if (dashboard.preview_mode) {
+    if (tgt.last_targeting_en) {
         prims.emplace_back(
             draw::Rect{ gftt_preview.fov_rect, red});
 
@@ -1011,9 +1151,7 @@ void TFlowTracker::RenderDebugInfo(Mat& frame)
         for (auto& p_feat : features_preview) p_feat.second.RenderFeature(prims, feat_cfg);
     }
     else {
-        if (features.size() > 0) {
-            for (auto& p_feat : features) p_feat.second.RenderFeature(prims, feat_cfg);
-        }
+        for (auto& p_feat : features) p_feat.second.RenderFeature(prims, feat_cfg);
     }
 
 
@@ -1029,3 +1167,62 @@ void TFlowTracker::RenderDebugInfo(Mat& frame)
 
 }
 
+int TFlowTargeting::getMode()
+{
+    // 0 - disabled; 1 - start; 2 - enabled; 3 - finalize
+    int mode_changed = (last_targeting_en != targeting_en);
+    last_targeting_en = targeting_en;
+
+    if (mode_changed) {
+        return targeting_en ? 1 : 3;    // Start/Finalize
+    }
+    else {
+        return targeting_en ? 2 : 0;    // Enabled/Disabled
+    }
+}
+
+uint16_t TFlowTargeting::getEvent()
+{
+    int new_event = (last_butt_event_id != butt_event_id);
+    if (!new_event) return 0;
+
+    last_butt_event_id = butt_event_id;
+    return butt_event;
+}
+
+void TFlowTargeting::getData(uint8_t* aux_data, uint32_t aux_data_len)
+{
+    uint32_t sign = *(uint32_t*)aux_data;
+
+    if (aux_data_len == 0) {
+        is_valid = false;
+        return;
+    } else if (sign == 0x54475431) {  // TGT1   0x54475431
+        TFlowTargeting::targeting_input_v1 *tgt_in = 
+            (TFlowTargeting::targeting_input_v1*)aux_data;
+
+        assert(aux_data_len == sizeof(TFlowTargeting::targeting_input_v1));
+        getTgt_v1(tgt_in);
+        is_valid = true;
+    } 
+    else {
+        is_valid = false;
+    }
+    
+}
+
+void TFlowTargeting::getTgt_v1(const TFlowTargeting::targeting_input_v1* tgt_in)
+{
+    assert(tgt_in->sign == 0x54475431);              // TGT1
+
+    targeting_en = !!(tgt_in->flags & (1 << 0));
+
+    cursor_x = (int)roundf(tgt_in->cursor_x * frame_size.width);
+    cursor_y = (int)roundf(tgt_in->cursor_y * frame_size.height);
+
+    if (butt_event_id != tgt_in->evt_id) {
+        butt_event_id = tgt_in->evt_id;
+        butt_event = tgt_in->evt;
+    }
+
+}

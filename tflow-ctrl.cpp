@@ -30,7 +30,6 @@ void TFlowCtrl::addCtrl(const tflow_cmd_field_t *cmd_fld, Json::array &j_ctrl_ou
 {
 /*
         NONE,
-//        HEADER,     // Same as above but with 2 sliders. The value is an array of integer [current1, current2, min, max, size]
         EDIT,       // edit box the value passed and stored as literals.
         SWITCH,     // a regular switch (checkbox). The value is 0 or 1.
         BUTTON,     // 
@@ -52,7 +51,6 @@ void TFlowCtrl::addCtrl(const tflow_cmd_field_t *cmd_fld, Json::array &j_ctrl_ou
     case UICTRL_TYPE::EDIT:
         {
             // Default STR -> EDIT control - Label from name, length from value capped to 20
-            
             if ( cmd_fld->type == TFlowCtrl::CFT_STR ) {
                 addCtrlEdit(cmd_fld, ui_label, cmd_fld->v.c_str, j_arr_entry);
             }
@@ -117,7 +115,12 @@ void TFlowCtrl::addCtrlEdit(const tflow_cmd_field_t *cmd_fld, const char *label,
     j_out_params.emplace("state", ui_ctrl->state);
     j_out_params.emplace("type",  "edit");
     j_out_params.emplace("value", val ? val : "");
-    j_out_params.emplace("size",  ui_ctrl->size);
+    if (ui_ctrl->size == -1) {
+        j_out_params.emplace("size", "full");
+    }
+    else {
+        j_out_params.emplace("size", ui_ctrl->size);
+    }
 }
 
 void TFlowCtrl::addCtrlSwitch(const tflow_cmd_field_t *cmd_fld, const char *label, Json::object &j_out_params)
@@ -146,7 +149,13 @@ void TFlowCtrl::addCtrlButton(const tflow_cmd_field_t *cmd_fld, const char *labe
 
     j_out_params.emplace("state", ui_ctrl->state);
     j_out_params.emplace("type",  "button");
-    j_out_params.emplace("size",  ui_ctrl->size);
+
+    if (ui_ctrl->size == -1) {
+        j_out_params.emplace("size", "full");
+    }
+    else {
+        j_out_params.emplace("size", ui_ctrl->size);
+    }
 }
 
 void TFlowCtrl::addCtrlDropdown(const tflow_cmd_field_t *cmd_fld, const char *label, json11::Json::object &j_out_params)
@@ -190,7 +199,14 @@ void TFlowCtrl::addCtrlDropdown(const tflow_cmd_field_t *cmd_fld, const char *la
     }
 
     j_out_params.emplace("type",  "dropdown");
-    j_out_params.emplace("size",  ui_ctrl->size);
+
+    if (ui_ctrl->size == -1) {
+        j_out_params.emplace("size", "full");
+    }
+    else {
+        j_out_params.emplace("size", ui_ctrl->size);
+    }
+
     j_out_params.emplace("value", j_dropdown_arr);
 }
 
@@ -207,7 +223,13 @@ void TFlowCtrl::addCtrlSlider(const tflow_cmd_field_t *cmd_fld, const char *labe
     j_out_params.emplace("state", ui_ctrl->state);
 
     j_out_params.emplace("type",  "slider");
-    j_out_params.emplace("size",  ui_ctrl->size);
+
+    if (ui_ctrl->size == -1) {
+        j_out_params.emplace("size", "full");
+    }
+    else {
+        j_out_params.emplace("size", ui_ctrl->size);
+    }
 
     Json::array j_dropdown_arr;
     
@@ -230,11 +252,23 @@ void TFlowCtrl::addCtrlSlider2(const tflow_cmd_field_t *cmd_fld, const char *lab
     j_out_params.emplace("state", ui_ctrl->state);
 
     j_out_params.emplace("type",  "slider2");
-    j_out_params.emplace("size",  ui_ctrl->size);
+
+    if (ui_ctrl->size == -1) {
+        j_out_params.emplace("size", "full");
+    }
+    else {
+        j_out_params.emplace("size", ui_ctrl->size);
+    }
 
     Json::array j_slider_arr;
 
-    j_slider_arr.emplace_back(cmd_fld->v.num);
+    const std::vector<int> *val = cmd_fld->v.vnum;
+    assert(val->size() == 2);
+    int val1 = val->at(0);
+    int val2 = val->at(1);
+
+    j_slider_arr.emplace_back(val1);
+    j_slider_arr.emplace_back(val2);
     j_slider_arr.emplace_back(slider.min);
     j_slider_arr.emplace_back(slider.max);
 
@@ -425,20 +459,21 @@ int TFlowCtrl::setCmdFields(tflow_cmd_field_t* in_cmd_fields, const Json& j_in_p
     // Loop over all config command fields and check json_cfg
     tflow_cmd_field_t* cmd_field = in_cmd_fields;
 
-//    std::string del_me = j_in_params.dump();
+    // std::string del_me = j_in_params.dump();
     while (cmd_field->name != nullptr) {
         
         const Json& in_field_param = j_in_params[cmd_field->name];
+        // std::string del_me2 = in_field_param.dump();
 
         if (cmd_field->type == CFT_REF_SKIP) {
             setCmdFields(cmd_field->v.ref + 1, j_in_params, was_changed);
-            if (was_changed) cmd_field->flags |= FIELD_FLAG::CHANGED_STICKY;
+            if (was_changed) cmd_field->flags |= FIELD_FLAG::CHANGED;
         }
         else if (!in_field_param.is_null()) {
             // Configuration parameter is found in Json config
             int rc = setField(cmd_field, in_field_param);
-            if (cmd_field->flags & (FIELD_FLAG::CHANGED | FIELD_FLAG::CHANGED_STICKY)) {
-                was_changed |= FIELD_FLAG::CHANGED_STICKY;
+            if (cmd_field->flags & FIELD_FLAG::CHANGED) {
+                was_changed |= FIELD_FLAG::CHANGED;
             }
             if (rc) return -1;
         }

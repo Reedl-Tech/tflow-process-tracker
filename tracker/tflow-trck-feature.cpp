@@ -233,6 +233,15 @@ void TFlowFeature::RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, 
 {
     int cfg = (int)_cfg;
 
+    static int off_size = 1;
+    static int line_width = 1;
+
+    int off = is_preview_sel ? 1 : 0;
+
+    auto color2 =
+        is_preview_sel ? FEAT_COLOR_OFF_PREVIEW_SEL :
+        blue;
+
     auto color =
         is_preview_sel ? FEAT_COLOR_PREVIEW_SEL :
         is_preview     ? FEAT_COLOR_PREVIEW :
@@ -260,39 +269,52 @@ void TFlowFeature::RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, 
         is_sparsed     ? FEAT_SHAPE_OUT_OF_CELLS :
         FEAT_SHAPE_RECT;
 
-    switch (shape) {
-    case FEAT_SHAPE_RECT:
-        prims.emplace_back(
-            draw::Rect{ cv::Rect{(int)(pos.x - size / 2), (int)(pos.y - size / 2), size, size}, color });
-        break;
+    cv::Point2f pos = this->pos;
 
-    case FEAT_SHAPE_CROSS:
-        prims.emplace_back(
-            draw::Line{ {(int)(pos.x - size / 2), (int)(pos.y - 1) }, {(int)(pos.x + size / 2), (int)(pos.y - 1) }, white });
-        prims.emplace_back(
-            draw::Line{ {(int)(pos.x - 1), (int)(pos.y - size / 2)}, {(int)(pos.x - 1), (int)(pos.y + size / 2)}, white });
-        prims.emplace_back(
-            draw::Line{ {(int)(pos.x - size / 2), (int)(pos.y) }, {(int)(pos.x + size / 2), (int)(pos.y) }, color });
-        prims.emplace_back(
-            draw::Line{ {(int)(pos.x), (int)(pos.y - size / 2)}, {(int)(pos.x), (int)(pos.y + size / 2)}, color });
-        break;
+    do {
+        switch (shape) {
+        case FEAT_SHAPE_RECT:
+            prims.emplace_back(
+                draw::Rect{cv::Rect{(int)(pos.x - size / 2), (int)(pos.y - size / 2), size, size}, color});
+            break;
 
-    case FEAT_SHAPE_DIAM:
-        prims.emplace_back(
-            draw::Line { {(int)(pos.x - size / 2), (int)(pos.y +      0)}, {(int)(pos.x +       0), (int)(pos.y - size/2)}, color });
-        prims.emplace_back(
-            draw::Line { {(int)(pos.x +        0), (int)(pos.y - size/2)}, {(int)(pos.x + size / 2), (int)(pos.y +      0)}, color });
-        prims.emplace_back(
-            draw::Line { {(int)(pos.x + size / 2), (int)(pos.y +      0)}, {(int)(pos.x +        0), (int)(pos.y + size/2)}, color });
-        prims.emplace_back(
-            draw::Line { {(int)(pos.x +        0), (int)(pos.y + size/2)}, {(int)(pos.x - size / 2), (int)(pos.y +      0)}, color });
-        break;
+        case FEAT_SHAPE_CROSS:
+            prims.emplace_back(
+                draw::Line{{(int)(pos.x - size / 2), (int)(pos.y - 1) }, {(int)(pos.x + size / 2), (int)(pos.y - 1) }, white});
+            prims.emplace_back(
+                draw::Line{{(int)(pos.x - 1), (int)(pos.y - size / 2)}, {(int)(pos.x - 1), (int)(pos.y + size / 2)}, white});
+            prims.emplace_back(
+                draw::Line{{(int)(pos.x - size / 2), (int)(pos.y) }, {(int)(pos.x + size / 2), (int)(pos.y) }, color});
+            prims.emplace_back(
+                draw::Line{{(int)(pos.x), (int)(pos.y - size / 2)}, {(int)(pos.x), (int)(pos.y + size / 2)}, color});
+            break;
 
-    case FEAT_SHAPE_CIRC:
-        prims.emplace_back(
-            draw::Circle{ {(int)(pos.x), (int)(pos.y)}, size / 2, color });
+        case FEAT_SHAPE_DIAM:
+            prims.emplace_back(
+                draw::Line{{(int)(pos.x - size / 2), (int)(pos.y + 0)}, {(int)(pos.x + 0), (int)(pos.y - size / 2)}, color, line_width});
+            prims.emplace_back(
+                draw::Line{{(int)(pos.x + 0), (int)(pos.y - size / 2)}, {(int)(pos.x + size / 2), (int)(pos.y + 0)}, color, line_width});
+            prims.emplace_back(
+                draw::Line{{(int)(pos.x + size / 2), (int)(pos.y + 0)}, {(int)(pos.x + 0), (int)(pos.y + size / 2)}, color, line_width});
+            prims.emplace_back(
+                draw::Line{{(int)(pos.x + 0), (int)(pos.y + size / 2)}, {(int)(pos.x - size / 2), (int)(pos.y + 0)}, color, line_width});
+            break;
+
+        case FEAT_SHAPE_CIRC:
+            prims.emplace_back(
+                draw::Circle{{(int)(pos.x), (int)(pos.y)}, size / 2, color});
+            break;
+        }
+
+        if (off) {
+            pos.x += off_size;
+            pos.y += off_size;
+            color = color2;
+            off = 0;
+            continue;
+        }
         break;
-    }
+    } while(1);
 
     int lbl_ancor_idx = 0;
     Point2f lbl_ancor_pos[4] = {

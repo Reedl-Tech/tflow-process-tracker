@@ -144,7 +144,7 @@ public:
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_trck_dashboard = {
         TFLOW_CMD_HEAD("dashboard"),
-        .main_win_w         = { "main_win_w", TFlowCtrl::CFT_NUM, 0, {.num = 424} },
+        .main_win_w         = { "main_win_w", TFlowCtrl::CFT_NUM, 0, {.num = 424} },        // Fix me!!! Parameters not read from config file. Something wrong with "ref skip"
         .main_win_h         = { "main_win_h", TFlowCtrl::CFT_NUM, 0, {.num = 328} },
         .time_fmt           = { "time_fmt",   TFlowCtrl::CFT_STR, 0, {.str = nullptr}, &ui_dd_time_fmt },
         .time_lbl_x         = { "time_lbl_x", TFlowCtrl::CFT_NUM, 0, {.num = 750}, &ui_edit_def },

@@ -47,14 +47,16 @@ private:
     static const int FEAT_SIZE_OUT_OF_CELLS = 6;
     static const int FEAT_SIZE_VIRTUAL      = 6;
     static const int FEAT_SIZE_PREVIEW      = 12;
-    static const int FEAT_SIZE_PREVIEW_SEL  = 12;
+    static const int FEAT_SIZE_PREVIEW_SEL  = 14;
 
     static constexpr const cv::Scalar &FEAT_COLOR_NEW          = cyan;
     static constexpr const cv::Scalar &FEAT_COLOR_NOT_FOUND    = red;
     static constexpr const cv::Scalar &FEAT_COLOR_OUT_OF_CELLS = red;
     static constexpr const cv::Scalar &FEAT_COLOR_VIRTUAL      = red;
     static constexpr const cv::Scalar &FEAT_COLOR_PREVIEW      = cyan;
-    static constexpr const cv::Scalar &FEAT_COLOR_PREVIEW_SEL  = yellow;
+    static constexpr const cv::Scalar &FEAT_COLOR_PREVIEW_SEL  = white;
+
+    static constexpr const cv::Scalar &FEAT_COLOR_OFF_PREVIEW_SEL  = red;
 
 public:
     enum class RenderDbg {

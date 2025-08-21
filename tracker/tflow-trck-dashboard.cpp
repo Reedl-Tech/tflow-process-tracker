@@ -39,6 +39,7 @@ static void dashb_on_mouse_cb(int m_event, int x, int y, int m_flags, void* user
 
 void TFlowTrackerDashboard::onPointer(int event, int x, int y, int flags)
 {
+#if BTC
     Point2i cam_off = Point2i(frameCamRect.x + 10,  frameCamRect.y + 10);
     
     switch (event) {
@@ -85,10 +86,8 @@ void TFlowTrackerDashboard::onPointer(int event, int x, int y, int flags)
     case EVENT_MOUSEWHEEL:
         break;
     }
-
-
+#endif
 }
-
 TFlowTrackerDashboard::TFlowTrackerDashboard(
     const TFlowTrackerCfg::cfg_trck_dashboard* _cfg,
     int cam_frame_w, int cam_frame_h) :
@@ -578,10 +577,18 @@ void TFlowTrackerDashboard::initDashboardFrame()
         frameMain = Mat(frame_size_nv12, CV_8UC1);
         frameMainY = Mat(frame_size_Y, CV_8UC1, (void*)frameMain.datastart);
         frameMainUV = Mat(frame_size_UV, CV_8UC2, (void*)frameMainY.dataend);
-        frameCamRect = Rect(20, 20, 384, 288);    // Note: Size is choosen by FLYN frame format,
+
+#if ATIC320_9p1mm 
+        frameCamRect = Rect(20, 20, 320, 240);
+
+#elif TWIN412_9p1mm
+#elif COIN417G2_9p1mm
+        frameCamRect = Rect(20, 20, 384, 288);  // Note1: Size is choosen by FLYN frame format,
                                                 //       to avoid unnecessary scaling, but 
                                                 //       can be any other as an actual camera 
                                                 //       frame will be scaled to this rectangle.
+                                                // Note2: right now crashes if not equal to frame size because of grid handling 
+#endif
 
     }
     static const cv::Scalar fill(128, 128);

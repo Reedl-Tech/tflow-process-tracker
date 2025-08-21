@@ -600,6 +600,4 @@ void TFlowProcess::onBtcMsg(const char *btc_msg)
     flags |= cursor->rdown ? EVENT_FLAG_RBUTTON : 0;
     flags |= cursor->ldown ? EVENT_FLAG_LBUTTON : 0;
     algo->onPointer(event, cursor->x, cursor->y, flags);    
-
-
 }

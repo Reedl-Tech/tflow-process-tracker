@@ -125,9 +125,8 @@ public:
     };
 
     enum FIELD_FLAG : int {
-        NONE           = 0,
-        CHANGED        = 1,
-        CHANGED_STICKY = 2, // Set to CHANGED if any member of group was changed
+        NONE      = 0,
+        CHANGED   = 1,
         REQUESTED = 2
     };
 
@@ -170,7 +169,7 @@ public:
     static void getCmdInfo(const tflow_cmd_field_t* fields, json11::Json::object& j_cmd_info);      // AV: Bad naming. Not info but rather value?
     static void setFieldStr(tflow_cmd_field_t *str_field, const char* value);
     
-    static void addCtrl(const tflow_cmd_field_t *cmd_fld, json11::Json::array &j_ctrl_out_arr);
+    static void addCtrl        (const tflow_cmd_field_t *cmd_fld, json11::Json::array &j_ctrl_out_arr);
     static void addCtrlEdit    (const tflow_cmd_field_t *cmd_fld, const char *ui_label, const char *val, json11::Json::object &j_out_params);
     static void addCtrlSwitch  (const tflow_cmd_field_t *cmd_fld, const char *ui_label, json11::Json::object &j_out_params);      // Switch don't have size as it is defined by UI
     static void addCtrlButton  (const tflow_cmd_field_t *cmd_fld, const char *ui_label, json11::Json::object &j_out_params);         // Button don't have value as it is always 0

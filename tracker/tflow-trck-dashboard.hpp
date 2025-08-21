@@ -64,13 +64,19 @@ public:
 
     std::vector<draw::Prim> instr_prims;
 
+#if BTC
     /* Preview mode */
     int preview_mode = 0;           // Right mouse butoon is pressed - GFTT runs around the cursor
-    int preview_force_frame = 0;    // Initiate frame processing even if it wasn't changed.
-                                    // Is used for handling user mouse activity over freezed frame.
+                                    // 1 - start selection
+                                    // 3 - end selection
+
+
 
     Point2i preview_selected = Point2i(-1, -1);
     Point2i preview_cursor = Point2i(-1, -1);
+#endif
+    int preview_force_frame = 0;    // Initiate frame processing even if it wasn't changed.
+                                    // Is used for handling user mouse activity over freezed frame.
 
 private:
     const TFlowTrackerCfg::cfg_trck_dashboard* cfg;

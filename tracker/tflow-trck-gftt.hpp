@@ -49,7 +49,7 @@ public:
     };
 
     cv::Rect2f fov_rect;
-    cv::Rect2f _fov_rect_framed; // temporary
+    cv::Rect2f _fov_rect_framed;    // FOV rectangle limited by the frame boundaries
     /*
      * GFTT input argument
      */

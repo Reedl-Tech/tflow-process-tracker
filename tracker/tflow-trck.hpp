@@ -39,6 +39,59 @@ struct TFlowTrackerMsg {
 };
 #pragma pack(pop)
 
+
+class TFlowTargeting {
+
+public:
+    TFlowTargeting(int w, int h) :
+       frame_size(w, h)
+    {
+        is_valid = 0;
+
+        targeting_en = 0;
+        cursor_x = 0.5f;
+        cursor_y = 0.5f;
+        butt_event = 0;
+        butt_event_id = -1;
+    }
+
+#pragma pack(push, 1)
+    struct targeting_input_v1 {
+        uint32_t sign;        // TGT1   0x54475431
+        uint32_t tv_sec;      // Local timestamp
+        uint32_t tv_usec;     // Local timestamp
+        float    cursor_x;    // Normalized cursor position
+        float    cursor_y;
+        uint8_t  flags;       // EN/DIS etc
+        uint16_t evt;         // Button press event
+        int16_t  evt_id;      // Button press event id
+    } ;
+#pragma pack(pop)
+
+    int is_valid;
+    void getData(uint8_t* aux_data, uint32_t aux_data_len);             // Parse incoming data from capture
+    void getTgt_v1(const TFlowTargeting::targeting_input_v1* tgt_in);   // Parse incoming data from capture
+
+    int getMode();  // return current mode  0 - disabled; 1 - start; 2 - enabled; 3 - finalize
+    uint16_t getEvent();
+
+
+    // Last reported by getter
+    int last_targeting_en;
+    int last_butt_event;
+    int last_butt_event_id;
+   
+    int cursor_x;
+    int cursor_y;
+
+private:
+    // Currently received
+    Size frame_size;
+    int targeting_en;
+    int butt_event;
+    int butt_event_id;
+};
+
 class TFlowTracker : public TFlowAlgo {
 
 private:
@@ -102,6 +155,7 @@ public:
     std::map<int, TFlowFeature> features;
     std::map<int, TFlowFeature> features_preview;
 
+    TFlowTargeting              tgt;
     TFlowImu                    imu;
     TFlowGftt                   gftt_flytime;
     TFlowGftt                   gftt_preview;
@@ -160,5 +214,7 @@ public:
 
     cv::Rect2f getGridSector();
 
+    void targetSelection();
+    void targetOnButtEvent(uint16_t event);
 };
 

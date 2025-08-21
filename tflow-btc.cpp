@@ -76,14 +76,12 @@ int TFlowBtc::Connect()
         return -1;
     }
 
-    const char *bind_addr_str = "192.168.2.2";
-    //rc = inet_pton(AF_INET, bind_addr_str, &local_addr.sin_addr);
     local_addr.sin_addr.s_addr = INADDR_ANY; rc = 1;
     local_addr.sin_port	= ntohs(21009);
     local_addr.sin_family = AF_INET;
 
     if (!rc) {
-        g_warning("TFlowBtc: Bad address (%s)", bind_addr_str);
+        g_warning("TFlowBtc: Bad address (%X)", local_addr.sin_addr.s_addr);
         return -1;
     }
 
