@@ -95,7 +95,7 @@ int TFlowUDPVStreamer::OpenUDP()
         return -1;
     }
 
-    sck_fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);
+    sck_fd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, IPPROTO_UDP);  // In case of blocking we will just drop a frame
     if (sck_fd == -1) {
         g_warning("TFlowUDPStreamer: Can't create socket (%d) - %s", errno, strerror(errno));
         return -1;
@@ -162,8 +162,14 @@ int TFlowUDPVStreamer::onFrameEncoded(TFlowBuf &tflow_buf)
         int rc = 0;
         rc = sendmsg(sck_fd, &enc_mh, 0);            /* no flags used */
         if (rc == -1) {
-            g_warning("TFlowUDPStreamer: Can't send (%d) - %s", errno, strerror(errno));
-            sck_state_flag.v = Flag::FALL;
+            int err = errno;
+            if (err == EWOULDBLOCK || err == EAGAIN) {
+                g_warning("TFlowUDPStreamer: Blocking - drops the frame");
+            }
+            else {
+                g_warning("TFlowUDPStreamer: Can't send (%d) - %s", errno, strerror(errno));
+                sck_state_flag.v = Flag::FALL;
+            }
         }
     }
 
@@ -186,7 +192,7 @@ int TFlowUDPVStreamer::consumeBuffer(TFlowBuf& buf)
     // Application returns back our buffer for further processing.
     // Upon encoding onFrameEncoded() callback will be triggered.
     if (encoder) {
-        encoder->encodeInputBuffer(buf);
+        encoder->enqueueInputBuffer(buf);
     }
 #if CODE_BROWSE
     TFlowUDPVStreamer::onFrameEncoded(buf_idx);
@@ -290,6 +296,8 @@ TFlowUDPVStreamer::TFlowUDPVStreamer(MainContextPtr _context, int _w, int _h,
 
 TFlowUDPVStreamer::~TFlowUDPVStreamer()
 {
+    CloseUDP();
+
     if (encoder) {
         delete encoder;
         encoder = nullptr;

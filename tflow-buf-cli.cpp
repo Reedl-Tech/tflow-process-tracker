@@ -17,7 +17,7 @@
 
 TFlowBufCli::~TFlowBufCli()
 {
-    CloseUDP();
+    Close();
 }
 
 int TFlowBufCli::onConsume(std::shared_ptr<TFlowBufPck> sp_pck)
@@ -62,7 +62,7 @@ int TFlowBufCli::onSrcFD(TFlowBufPck::pck_fd* msg, int cam_fd)
     return 0;
 }
 
-bool TFlowBufCli::onUDPMsg(Glib::IOCondition io_cond)
+bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
 {
     struct msghdr   msg;
     struct iovec    iov[1];
@@ -300,7 +300,7 @@ int TFlowBufCli::sendSignature()
     return 0;
 }
 
-void TFlowBufCli::CloseUDP()
+void TFlowBufCli::Close()
 {
     if (sck_fd != -1) {
         close(sck_fd);
@@ -356,7 +356,7 @@ int TFlowBufCli::Connect()
     g_warning("---TFlowBufCli: Connected to the server %s", srv_name.c_str());
 
     sck_src = Glib::IOSource::create(sck_fd, (Glib::IOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP));
-    sck_src->connect(sigc::mem_fun(*this, &TFlowBufCli::onUDPMsg));
+    sck_src->connect(sigc::mem_fun(*this, &TFlowBufCli::onMsg));
     sck_src->attach(context);
 
     return 0;
@@ -427,7 +427,7 @@ void TFlowBufCli::onIdle(struct timespec now_ts)
         if (app_onSrcGone) app_onSrcGone();
         if (app_onDisconnect) app_onDisconnect();
 
-        CloseUDP();
+        Close();
 
         // Try to reconnect later
         sck_state_flag.v = Flag::CLR;

@@ -84,7 +84,6 @@ TFlowBtc::~TFlowBtc()
     }
 
     CloseMg();
-
 }
 
 

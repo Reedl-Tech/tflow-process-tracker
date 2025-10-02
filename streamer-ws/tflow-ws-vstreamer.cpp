@@ -92,8 +92,7 @@ void TFlowWsVStreamer::wakeup(struct mg_connection* c, int enc_buf_idx)
     assert(enc_buf_id < encoder->output_bufs.size());
     TFlowBuf &tflow_buf = encoder->output_bufs[enc_buf_idx];
 
-    assert(tflow_buf.state == TFlowBuf::BUF_STATE_DRIVER);
-    tflow_buf.state = TFlowBuf::BUF_STATE_APP;
+    assert(tflow_buf.state == TFlowBuf::BUF_STATE_APP);
     size_t enc_buf_len = tflow_buf.v4l2_buf.m.planes->bytesused;
     uint8_t *enc_buf = (uint8_t *)tflow_buf.start;     
 
@@ -186,8 +185,11 @@ void TFlowWsVStreamer::_on_msg(struct mg_connection* c, int ev, void* ev_data)
         assert(wake_up_data->len == sizeof(uint32_t));
         uint32_t enc_buf_idx = *(uint32_t*)wake_up_data->ptr;
 
+        if (enc_buf_idx == -1) {
+            ws_streamer->terminate_thread = 1;
+            return;
+        }
         ws_streamer->wakeup(c, (int)enc_buf_idx);
-
     }
 
 }
@@ -201,7 +203,7 @@ void* TFlowWsVStreamer::_thread(void* ctx)
     mg_log_set(MG_LL_INFO);         // Set log level
     mg_http_listen(&m->mgr, "http://0.0.0.0:8020", m->_on_msg, (void*)m);
     mg_wakeup_init(&m->mgr);        // Initialise wakeup socket pair
-    for (;;) {                      // Event loop
+    while(m->terminate_thread == 0) {                      // Event loop
         mg_mgr_poll(&m->mgr, 1000);
     }
     mg_mgr_free(&m->mgr);
@@ -214,6 +216,9 @@ int TFlowWsVStreamer::onFrameEncoded(TFlowBuf &buf)
     // Awake WS sender (Mongoose) with the buffer's index
     uint32_t wake_up_data = buf.index;
     mg_wakeup(&mgr, 1, &wake_up_data, sizeof(wake_up_data));
+#if CODE_BROWSE
+    TFlowWsVStreamer::wakeup(struct mg_connection* c, int enc_buf_idx);
+#endif
     return 0;
 }
 int TFlowWsVStreamer::consumeBuffer(TFlowBuf& buf)
@@ -221,7 +226,7 @@ int TFlowWsVStreamer::consumeBuffer(TFlowBuf& buf)
     // Application returns back our buffer for further processing
     // Upon encoding onFrameEncoded() callback will be triggered
     if (encoder) {
-        encoder->encodeInputBuffer(buf);
+        encoder->enqueueInputBuffer(buf);
     }
 #if CODE_BROWSE
     TFlowWsVStreamer::onFrameEncoded(buf_idx);
@@ -239,30 +244,16 @@ TFlowBuf* TFlowWsVStreamer::getFreeBuffer()
     return encoder->getFreeInputBuffer();
 }
 
-TFlowWsVStreamer::TFlowWsVStreamer(MainContextPtr _context, int _w, int _h,
-    const TFlowWSStreamerCfg::cfg_ws_streamer *ws_streamer_cfg)
+int TFlowWsVStreamer::start()
 {
     int rc;
- 
-    context = _context;
-
-    cfg = ws_streamer_cfg;
-
     TFlowEncCfg::cfg_v4l2_enc *v4l2_enc_cfg = 
-        (TFlowEncCfg::cfg_v4l2_enc*)ws_streamer_cfg->v4l2_enc.v.ref;
+        (TFlowEncCfg::cfg_v4l2_enc*)cfg->v4l2_enc.v.ref;
 
     // ATT: Encoder can be reconfigured in runtime, i.e. recreated. Thus, 
     //      DO NOT assume pointer is always exists.
-    encoder = new TFlowEnc(context, _w, _h, v4l2_enc_cfg,
+    encoder = new TFlowEnc(context, frame_width, frame_height, v4l2_enc_cfg,
         std::bind(&TFlowWsVStreamer::onFrameEncoded, this, std::placeholders::_1));
-
-    tflow_tlv_key[0] = 0x342E5452;
-    tflow_tlv_key[2] = 0x354B0000;
-
-    tflow_tlv_dlt[0] = 0x342E5452;
-    tflow_tlv_dlt[2] = 0x35500000;
-
-    last_idle_check = 0;
 
     /* Create mongoose thread */
     pthread_attr_t attr;
@@ -272,17 +263,71 @@ TFlowWsVStreamer::TFlowWsVStreamer(MainContextPtr _context, int _w, int _h,
 
     rc = pthread_create(&th, &attr, _thread, this);
     pthread_attr_destroy(&attr);
+
+    terminate_thread = 0;
+    enc_seq = 0;
+
+    return 0;
 }
 
-TFlowWsVStreamer::~TFlowWsVStreamer()
+TFlowWsVStreamer::TFlowWsVStreamer(MainContextPtr _context, int _w, int _h,
+    const TFlowWSStreamerCfg::cfg_ws_streamer *ws_streamer_cfg)
 {
+    int rc;
+ 
+    context = _context;
+
+    frame_width = _w;
+    frame_height = _h;
+
+    cfg = ws_streamer_cfg;
+
+    tflow_tlv_key[0] = 0x342E5452;
+    tflow_tlv_key[2] = 0x354B0000;
+
+    tflow_tlv_dlt[0] = 0x342E5452;
+    tflow_tlv_dlt[2] = 0x35500000;
+
+    last_idle_check = 0;
+    
+    start();
+}
+
+void TFlowWsVStreamer::stop()
+{
+    // Send termination notification to WS thread
+    uint32_t wake_up_data = -1;
+    mg_wakeup(&mgr, 1, &wake_up_data, sizeof(wake_up_data));
+
+    pthread_join(th, nullptr);
+
     if (encoder) {
         delete encoder;
         encoder = nullptr;
     }
-    // 
-    // Close Mongoose thread?
-    // Send close signal
-    // Wait a while
-    // Force close if still running
+}
+
+TFlowWsVStreamer::~TFlowWsVStreamer()
+{
+    stop();
+}
+
+int TFlowWsVStreamer::onConfig(json11::Json::object& j_out_params, 
+    const TFlowWSStreamerCfg::cfg_ws_streamer *cfg)
+{
+
+    if (encoder && cfg->v4l2_enc.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        const TFlowEncCfg::cfg_v4l2_enc *enc_cfg = 
+            (TFlowEncCfg::cfg_v4l2_enc*)cfg->v4l2_enc.v.ref;
+
+        int rc = encoder->onConfig(j_out_params, enc_cfg);
+        if (rc == -1) {
+            // New configuration can be applied through full restart only
+            stop();
+            start();
+        }
+
+    }
+
+
 }

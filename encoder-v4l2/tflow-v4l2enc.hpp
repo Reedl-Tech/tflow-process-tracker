@@ -35,12 +35,14 @@ public:
 
     TFlowBuf* getFreeInputBuffer();
     int isDriverOutputBuffers();
-    int encodeInputBuffer(TFlowBuf &buf);
     int onOutputReady(TFlowBuf &buf);
     int onInputReleased(TFlowBuf &buf);
 
+    int onConfig(json11::Json::object& j_out_params, const TFlowEncCfg::cfg_v4l2_enc *cfg);
+
     // Utils
     const char* v4l2buf_flags2str(uint32_t flags);
+    void updateStatistics(uint32_t encoded_bytes);
 
     int initialized;
     const TFlowEncCfg::cfg_v4l2_enc *cfg;
@@ -52,18 +54,25 @@ public:
     int width;
     int height;
 
+    int frames_encoded;
+    uint64_t encoded_bytes;
+    uint64_t encoded_bytes_prev;
+    struct timespec wall_time_tp;
+    struct timespec wall_time_prev_tp;
+
     // ====== Encoder thread related ======
     pthread_t           th;
     pthread_cond_t      th_cond;
 
     int enc_thread_exit;
+    int drain_event;
 
     void EncThread();
     static void* _EncThread(void* ctx); // A wrapper for OpenFifoThread
 
     std::function<int(TFlowBuf &buf)> app_onFrameEncoded;
 
-    // Template used on DQBUF
+    // Templates used on DQBUF
     struct v4l2_buffer dqbuf_out;
     struct v4l2_plane dqbuf_out_plane[8];
 
@@ -72,7 +81,7 @@ public:
 
     // =====================
 
-    static constexpr int bufs_num = 4;  // In assumption number of output and input buffers are equal
+    static constexpr int bufs_num = 2;  // In assumption number of output and input buffers are equal
 
     std::vector<TFlowBuf> input_bufs;
     std::vector<TFlowBuf> output_bufs;

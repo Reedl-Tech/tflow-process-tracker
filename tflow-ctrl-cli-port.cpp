@@ -37,7 +37,7 @@ TFlowCtrlCliPort::TFlowCtrlCliPort (MainContextPtr context, TFlowCtrlSrv &_srv, 
     clock_gettime(CLOCK_MONOTONIC, &last_send_ts);
 
     sck_src = Glib::IOSource::create(sck_fd, (Glib::IOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP));
-    sck_src->connect(sigc::mem_fun(*this, &TFlowCtrlCliPort::onUDPMsg));
+    sck_src->connect(sigc::mem_fun(*this, &TFlowCtrlCliPort::onMsg));
     sck_src->attach(context);
 }
 
@@ -107,7 +107,7 @@ int TFlowCtrlCliPort::onMsgSign(const Json& j_params)
 }
 
 
-gboolean TFlowCtrlCliPort::onUDPMsg(Glib::IOCondition io_cond)
+gboolean TFlowCtrlCliPort::onMsg(Glib::IOCondition io_cond)
 {
     if (io_cond == Glib::IOCondition::IO_ERR) {
         assert(0);  // Implement something or remove condition from the source
@@ -117,7 +117,7 @@ gboolean TFlowCtrlCliPort::onUDPMsg(Glib::IOCondition io_cond)
         assert(0);  // Implement something or remove condition from the source
     }
 
-    int rc = onUDPMsgRcv();
+    int rc = onMsgRcv();
     if (rc) {
         // Let the Server kill us :/
         // No more access to "this->" upon return
@@ -131,7 +131,7 @@ gboolean TFlowCtrlCliPort::onUDPMsg(Glib::IOCondition io_cond)
     return G_SOURCE_CONTINUE;
 }
 
-int TFlowCtrlCliPort::onUDPMsgRcv()
+int TFlowCtrlCliPort::onMsgRcv()
 {
     int res = recv(sck_fd, in_udp_msg, in_udp_msg_size - 1, 0); //MSG_DONTWAIT 
 

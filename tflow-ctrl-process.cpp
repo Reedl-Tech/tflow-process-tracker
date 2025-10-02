@@ -269,6 +269,15 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
         app.setVideoSrc(cmd_flds_config.video_src.v.str);
     }
 
+    if (cmd_flds_config.ws_streamer.flags & FIELD_FLAG::CHANGED) {
+        const TFlowWSStreamerCfg::cfg_ws_streamer* ws_streamer_cfg = 
+            (TFlowWSStreamerCfg::cfg_ws_streamer*)cmd_flds_config.ws_streamer.v.ref;
+
+        if (app.ws_streamer) {
+            app.ws_streamer->onConfig(j_out_params, ws_streamer_cfg);
+        }
+    }
+
     if (app.algo && cmd_flds_config.algo.flags & FIELD_FLAG::CHANGED) {
         // Note: Json out params is not in use so far, but in theory, Algo
         // may add some specific outputs and use original input Json object.

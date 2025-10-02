@@ -5,6 +5,13 @@
 class TFlowEncUI : public TFlowCtrlUI {
 public:
 
+    enum ENC_CODEC {
+        ENC_CODEC_H265 = 0,
+        ENC_CODEC_H264 = 1,
+        ENC_CODEC_LAST = 2,
+        ENC_CODEC_NUM  = ENC_CODEC_LAST+1
+    };
+
     enum HEVC_PROFILE {
         HEVC_PROFILE_MAIN   = 0,
         HEVC_PROFILE_STILL  = 1,
@@ -21,6 +28,12 @@ public:
     };
 
 
+    const char *enc_codec_entries[ENC_CODEC_NUM] = {
+        [ENC_CODEC_H265 ] = "H.265",
+        [ENC_CODEC_H264 ] = "H.264",
+        [ENC_CODEC_LAST ] = nullptr 
+    };
+
     const char *hevc_profile_entries[HEVC_PROFILE_NUM] = {
         [HEVC_PROFILE_MAIN  ] = "Main",
         [HEVC_PROFILE_STILL ] = "Still",
@@ -32,6 +45,13 @@ public:
         [BITRATE_MODE_VAR ] = "Variable",
         [BITRATE_MODE_FIX ] = "Constant",
         [BITRATE_MODE_LAST] = nullptr 
+    };
+
+    struct TFlowCtrlUI::uictrl ui_dd_enc_codec = {
+        .label = "Codec",
+        .type = TFlowCtrlUI::DROPDOWN,
+        .size = 7,
+        .dropdown = {.val = (const char **)&enc_codec_entries }
     };
 
     struct TFlowCtrlUI::uictrl ui_dd_hevc_profile = {
@@ -71,6 +91,7 @@ class TFlowEncCfg : private TFlowEncUI {
 public:
     struct cfg_v4l2_enc {
         TFlowCtrl::tflow_cmd_field_t   head;
+        TFlowCtrl::tflow_cmd_field_t   codec;
         TFlowCtrl::tflow_cmd_field_t   profile;
         TFlowCtrl::tflow_cmd_field_t   qp;
         TFlowCtrl::tflow_cmd_field_t   qp_i;        // Quantanization Parameter for Index (aka KEY) frame
@@ -81,6 +102,7 @@ public:
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_v4l2_enc = {
         TFLOW_CMD_HEAD("v4l2 encoder"),
+        .codec         = { "codec",        TFlowCtrl::CFT_NUM,  0, {.num = 0},               &ui_dd_enc_codec},
         .profile       = { "profile",      TFlowCtrl::CFT_NUM,  0, {.num = 0},               &ui_dd_hevc_profile},
         .qp            = { "qp",           TFlowCtrl::CFT_VNUM, 0, {.vnum = &hevc_qp_value}, &ui_sl2_hevc_qp },
         .qp_i          = { "qp_i",         TFlowCtrl::CFT_NUM,  0, {.num = 30},              &ui_sl_qp },       // Lower better quality

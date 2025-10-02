@@ -13,7 +13,7 @@ gboolean TFlowBufSrv::onCliMsg(Glib::IOCondition io_cond)
     TFlowBufSCliPort* cli_port = nullptr; // source->cli_port;
     // ...
 
-    int rc = cli_port->onUDPMsg();
+    int rc = cli_port->onMsg();
     if (rc) {
         releaseCliPort(cli_port);
         return G_SOURCE_REMOVE;
@@ -365,7 +365,7 @@ int TFlowBufSCliPort::onSign(TFlowBufPck::pck_sign *pck_sign)
     return rc;
 }
 
-int TFlowBufSCliPort::onUDPMsg()
+int TFlowBufSCliPort::onMsg()
 {
     TFlowBufPck::pck in_udp_msg;
 

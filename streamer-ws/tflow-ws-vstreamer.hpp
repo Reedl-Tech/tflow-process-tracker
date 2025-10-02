@@ -22,8 +22,14 @@ public:
     TFlowBuf* getFreeBuffer();
     int consumeBuffer(TFlowBuf& buf);
 
+    int onConfig(json11::Json::object& j_out_params, const TFlowWSStreamerCfg::cfg_ws_streamer *cfg);
+
     TFlowEnc *encoder;
+
 private:
+
+    int start();
+    void stop();
     
     const TFlowWSStreamerCfg::cfg_ws_streamer *cfg;
 
@@ -31,7 +37,10 @@ private:
     uint32_t tflow_tlv_key[3];
     uint32_t tflow_tlv_dlt[3];
 
-    int enc_seq = 0;
+    int enc_seq;
+
+    int frame_width;
+    int frame_height;
 
     // HEVC/H264 encoder
     int onFrameEncoded(TFlowBuf &buf);
@@ -41,6 +50,8 @@ private:
     pthread_t           th;
     pthread_cond_t      th_cond;
     pthread_mutex_t     th_mutex;
+
+    int terminate_thread;
 
     struct mg_mgr mgr;
 

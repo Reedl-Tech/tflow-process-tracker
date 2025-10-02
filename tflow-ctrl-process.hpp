@@ -82,7 +82,7 @@ public:
         .state        = { "state",        CFT_NUM,      0, {.num =       0},  &ui_switch_def},
         .opencl       = { "opencl",       CFT_NUM,      0, {.num =       2} },  // 0 - disabled, 1 - enabled, 2 - enable with info. AV: Excluded from UI as no reason so far to disable OpenCL
         .video_src    = { "video_src",    CFT_STR,      0, {.str = nullptr},  &ui_custom_video_src},   // <"live", "playback", "disabled" >
-        .udp_streamer = { "udp_streamer", CFT_REF,      0, {.ref = &tflow_udp_streamer_cfg.cmd_flds_cfg_udp_streamer.head}, &ui_group_def},   
+        .udp_streamer = { "udp_streamer", CFT_REF,      0, {.ref = &tflow_udp_streamer_cfg.cmd_flds_cfg_udp_streamer.head} /* , &ui_group_def */},   
         .ws_streamer  = { "ws_streamer",  CFT_REF,      0, {.ref = &tflow_ws_streamer_cfg.cmd_flds_cfg_ws_streamer.head}, &ui_group_def},   
         .algo         = { "algo",         CFT_REF_SKIP, 0, {.ref = &cmd_flds_cfg_algo.head },  &ui_group_def },
         TFLOW_CMD_EOMSG
@@ -101,13 +101,15 @@ public:
     int cmd_cb_player_dir    (const json11::Json& j_in_params, json11::Json::object& j_out_params);
     int cmd_cb_set_as_def    (const json11::Json& j_in_params, json11::Json::object& j_out_params);
 
-#define TFLOW_PROCESS_RPC_CMD_VERSION     0
-#define TFLOW_PROCESS_RPC_CMD_CONTROLS    1
-#define TFLOW_PROCESS_RPC_CMD_CONFIG      2
-#define TFLOW_PROCESS_RPC_CMD_PLAYER      3
-#define TFLOW_PROCESS_RPC_CMD_PLAYER_DIR  4
-#define TFLOW_PROCESS_RPC_CMD_SET_AS_DEF  5
-#define TFLOW_PROCESS_RPC_CMD_LAST        6
+    enum {
+        TFLOW_PROCESS_RPC_CMD_VERSION,
+        TFLOW_PROCESS_RPC_CMD_CONTROLS,
+        TFLOW_PROCESS_RPC_CMD_CONFIG,
+        TFLOW_PROCESS_RPC_CMD_PLAYER,
+        TFLOW_PROCESS_RPC_CMD_PLAYER_DIR,
+        TFLOW_PROCESS_RPC_CMD_SET_AS_DEF,
+        TFLOW_PROCESS_RPC_CMD_LAST
+    };
 
     tflow_cmd_t ctrl_process_rpc_cmds[TFLOW_PROCESS_RPC_CMD_LAST + 1] = {
         ARRAY_INIT_IDX(TFLOW_PROCESS_RPC_CMD_VERSION   ) { "version",    (tflow_cmd_field_t*)&cmd_flds_version,    THIS_M(&TFlowCtrlProcess::cmd_cb_version)   },

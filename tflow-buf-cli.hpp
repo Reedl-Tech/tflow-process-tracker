@@ -30,8 +30,8 @@ public:
     void onIdle(struct timespec now_ts);
 
     int Connect();
-    void CloseUDP();
-    bool onUDPMsg(Glib::IOCondition);
+    void Close();
+    bool onMsg(Glib::IOCondition);
 
     int sendMsg(TFlowBufPck::pck &msg, int msg_id, int msg_custom_len);
     int sendSignature();

@@ -16,6 +16,8 @@
 #include <json11.hpp>
 
 #include "../tflow-buf.hpp"
+#include "../tflow-perfmon.hpp"
+
 #include "tflow-v4l2enc.hpp"
 
 void* TFlowEnc::_EncThread(void* ctx)
@@ -25,6 +27,26 @@ void* TFlowEnc::_EncThread(void* ctx)
     m->EncThread();
 
     return nullptr;
+}
+
+void TFlowEnc::updateStatistics(uint32_t _encoded_bytes)
+{
+    static int presc = 0;
+
+    frames_encoded++;
+    encoded_bytes += _encoded_bytes;
+
+    if ((presc++ & 0xFF) == 0) {
+        float actual_k_bitrate = NAN;
+        clock_gettime(CLOCK_MONOTONIC, &wall_time_tp);
+        double dt_sec = TFlowPerfMon::diff_timespec_msec(&wall_time_tp, &wall_time_prev_tp) / 1000;
+        if (dt_sec > 0) {
+            actual_k_bitrate = (encoded_bytes - encoded_bytes_prev) / dt_sec * 8 / 1000;
+            encoded_bytes_prev = encoded_bytes;
+            wall_time_prev_tp = wall_time_tp;
+        }
+        g_info("V4l2Driver: Frames encoded %d. Bitrate %5.1f kbit/sec", frames_encoded, actual_k_bitrate);
+    }
 }
 
 void TFlowEnc::EncThread()
@@ -37,9 +59,7 @@ void TFlowEnc::EncThread()
     struct v4l2_buffer buffer;
     struct v4l2_plane plane[8];
     struct v4l2_event event;
-    struct pollfd pollFds[1];
-
-    clock_t enc_poll_profile[10];
+    struct pollfd pollFds[2];
 
     // Note: After a buffer dequeued the same buffer 
     // can be reused w/o reinitialization.
@@ -60,28 +80,17 @@ void TFlowEnc::EncThread()
     pollFds[0].events = POLLIN | POLLRDNORM | POLLOUT | POLLWRNORM | POLLRDBAND | POLLPRI | POLLERR;
     pollFds[0].fd = enc_dev_fd;
 
-    //pollFds[1].events = POLLIN;
-    //pollFds[1].fd = enqueue_input_fd;
+    pollFds[1].events = POLLIN;
+    pollFds[1].fd = drain_event;
 
     while (!enc_thread_exit) {
-
-        //g_info("Poll profile: Total: %-5d, D_IN %-5d, D_E_OUT %-5d, E_IN %-5d",
-        //        enc_poll_profile[7] - enc_poll_profile[0],
-        //        enc_poll_profile[2] - enc_poll_profile[1],
-        //        enc_poll_profile[4] - enc_poll_profile[3],
-        //        enc_poll_profile[6] - enc_poll_profile[5]);
-
         int rc = poll(pollFds, ARRAYSIZE(pollFds), 1000);
-
-        memset(&enc_poll_profile, 0, sizeof(enc_poll_profile));
-        enc_poll_profile[0] = clock();
 
         if ((pollFds[0].revents & POLLOUT) || (pollFds[0].revents & POLLWRNORM)) {
             static int nok_cnt = 0;
-            if ((pollFds[0].revents & POLLIN) || (pollFds[0].revents & POLLRDNORM)) {
-                g_critical("V4l2Driver: = OK = %d", nok_cnt);
-            }
-            else {
+            if (!((pollFds[0].revents & POLLIN) || (pollFds[0].revents & POLLRDNORM))) {
+                // Workaround for unknown behavior. See comment below on
+                // output buffer EAGAIN error.
                 g_critical("V4l2Driver: ! NOK ! %d", nok_cnt++);
                 usleep(1*100);
                 continue;
@@ -116,74 +125,37 @@ void TFlowEnc::EncThread()
             else {
                 assert(0);
                 int err = errno;
-                g_critical("Error: Can't dequeue an event (%d)", err);
+                g_critical("V4l2Driver: Error - can't dequeue an event (%d)", err);
             }
         }
 
         if ((pollFds[0].revents & POLLIN) || (pollFds[0].revents & POLLRDNORM)) {
+            dqbuf_in.index = 0;
+            dqbuf_in.flags = 0;
 
-            enc_poll_profile[1] = clock();
-            //g_debug("V4l2Driver: IN/RDNORM received.\n");
-
-#if 1
-           // TODO: Reuse template
-            memset(&buffer, 0, sizeof(buffer));
-            memset(&plane[0], 0, sizeof(plane));
-            buffer.type = input_fmt_type;
-            buffer.m.planes = plane;
-            buffer.length = 1;
-            buffer.memory = V4L2_MEMORY_MMAP;
-
-            if (!ioctl(enc_dev_fd, VIDIOC_DQBUF, &buffer)) {
-                assert(buffer.index < input_bufs.size());
-                // assert(buffer.state == TFlowBuf::BUF_STATE_DRIVER);
-    
-                TFlowBuf& tflow_buf = input_bufs[buffer.index];
-                //tflow_buf.v4l2_buf.m.planes->bytesused = 0;
-                //tflow_buf.v4l2_buf.flags = buffer.flags;
-                //tflow_buf.v4l2_buf.sequence = buffer.sequence;
-
-                tflow_buf.state = TFlowBuf::BUF_STATE_FREE;
-            }
-#else
             if (!ioctl(enc_dev_fd, VIDIOC_DQBUF, &dqbuf_in)) {
                 assert(dqbuf_in.index < input_bufs.size());
                 TFlowBuf &buf = input_bufs[dqbuf_in.index];
-                buf.v4l2_buf.m.planes->bytesused = dqbuf_in.m.planes->bytesused;
-                buf.v4l2_buf.flags = dqbuf_in.flags;
-                buf.v4l2_buf.sequence = dqbuf_in.sequence;
-                buf.state = TFlowBuf::BUF_STATE_APP;
+                buf.state = TFlowBuf::BUF_STATE_FREE;
             }
-#endif
             else {
-                assert(0);
-                g_critical("Error: Failed to poll output buffer (%d) - %s", 
-                    errno, strerror(errno));
+                int err = errno;
+                if (err == EAGAIN) {
+                    // Normally should happens on Drain
+                    break;
+                }
+                else {
+                    g_critical("V4l2Driver: Error - failed to poll output buffer (%d) - %s",
+                        errno, strerror(errno));
+                }
             }
-            //g_info("===ENC=== DQBUF     %02d-%d   0x%08X", buffer.type, buffer.index, buffer.flags);
-            enc_poll_profile[2] = clock();
         }
 
         if ((pollFds[0].revents & POLLOUT) || (pollFds[0].revents & POLLWRNORM)) {
+            dqbuf_out.index = 0;
+            dqbuf_out.m.planes->bytesused = 0;
+            dqbuf_out.flags = 0;
 
-            enc_poll_profile[3] = clock();
-#if 1
-            memset(&buffer, 0, sizeof(buffer));
-            memset(&plane[0], 0, sizeof(plane));
-            buffer.type = output_fmt_type;
-            buffer.m.planes = plane;
-            buffer.length = 1;
-            buffer.memory = V4L2_MEMORY_MMAP;
-
-            if (!ioctl(enc_dev_fd, VIDIOC_DQBUF, &buffer)) {
-                assert(buffer.index < output_bufs.size());
-                TFlowBuf &buf = output_bufs[buffer.index];
-                buf.v4l2_buf.m.planes->bytesused = buffer.m.planes->bytesused;
-                buf.v4l2_buf.flags = buffer.flags;
-                buf.v4l2_buf.sequence = buffer.sequence;
-                buf.state = TFlowBuf::BUF_STATE_APP;
-            }
-#else
             if (!ioctl(enc_dev_fd, VIDIOC_DQBUF, &dqbuf_out)) {
                 assert(dqbuf_out.index < output_bufs.size());
                 TFlowBuf &buf = output_bufs[dqbuf_out.index];
@@ -191,37 +163,67 @@ void TFlowEnc::EncThread()
                 buf.v4l2_buf.flags = dqbuf_out.flags;
                 buf.v4l2_buf.sequence = dqbuf_out.sequence;
                 buf.state = TFlowBuf::BUF_STATE_APP;
-            }
-#endif
-            else {
-                assert(0);
-                g_critical("Error: Failed to poll input buffer (%d) - %s", 
-                    errno, strerror(errno));
-            }
-            onOutputReady(output_bufs[dqbuf_out.index]);
-            enc_poll_profile[4] = clock();
 
+
+                if (buf.v4l2_buf.m.planes->bytesused) {
+                    updateStatistics(buf.v4l2_buf.m.planes->bytesused);
+
+                    onOutputReady(buf);
 #if CODE_BROWSE
-            TFlowUDPVStreamer::onFrameEncoded(buf);
-                TFlowEnc::enqueueOutputBuffer(TFlowBuf &buf)
+                    TFlowUDPVStreamer::onFrameEncoded(buf);
+                        TFlowEnc::enqueueOutputBuffer(TFlowBuf &buf)
 #endif
-            // g_info("===ENC=== DQBUF     %02d-%d   0x%08X", dqbuf_out.type, dqbuf_out.index, dqbuf_out.flags);
+                }
+                if (dqbuf_out.flags & V4L2_BUF_FLAG_LAST) {
+                    g_info("V4l2Driver: Last frame processed");
+                    break;
+                }
+            }
+            else {
+                int err = errno;
+                if (err == EAGAIN) {
+                    // Do nothing. Happens than output ready before input
+                    // In case of output dequeue while input not ready yet,
+                    // EAGAIN will be returned and input won't be signaled 
+                    // anymore. Need to be investigated more deeply.
+                    // As a workaround - execute VIDIOC_DQBUF only then both
+                    // input and output are signaled.
+                    g_critical("V4l2Driver: Catch me");
+                }
+                else{
+                    g_critical("V4l2Driver: Error - failed to poll input buffer (%d) - %s",
+                        errno, strerror(errno));
+                }
+            }
         }
 
-#if 0
         if (pollFds[1].revents & POLLIN) {
-            enc_poll_profile[5] = clock();
-
             eventfd_t dummy_evt;
-            eventfd_read(enqueue_input_fd, &dummy_evt);
-            encodeInputBuffer(input_bufs[0]);
-            enc_poll_profile[6] = clock();
+            eventfd_read(drain_event, &dummy_evt);
+
+            // Initiate drain
+            struct v4l2_encoder_cmd drain_cmd = { 0 };
+            drain_cmd.cmd = V4L2_ENC_CMD_STOP;
+            int rc = ioctl(enc_dev_fd, VIDIOC_ENCODER_CMD, &drain_cmd);
+            g_info("V4l2Driver: Encoder stop (%d)", rc);
+
+            // Now let's process buffers normally until V4L2_BUF_FLAG_LAST 
+            // flag is set. Actually it is not received. Probably it is IMX 
+            // specific.
         }
-#endif
-        enc_poll_profile[7] = clock();
 
     }
-    g_info("Exiting TFlow Video thread...");
+
+    // Deque all remaining input buffers if any
+    for (auto& in_buf : input_bufs) {
+        if (in_buf.state == TFlowBuf::BUF_STATE_DRIVER) {
+            dqbuf_in.index = in_buf.index;
+            dqbuf_in.flags = 0;
+            ioctl(enc_dev_fd, VIDIOC_DQBUF, &dqbuf_in);
+        }
+    }
+
+    g_info("V4l2Driver: Exiting encoder thread...");
     
     return;
 }
@@ -232,16 +234,20 @@ int TFlowEnc::onInputReleased(TFlowBuf& buf)
     
     buf.v4l2_buf.m.planes->bytesused = 0;
     buf.state = TFlowBuf::BUF_STATE_FREE;
-
-    //g_info("===ENC=== RELEASED     %d-%d   0x%08X", buf.v4l2_buf.type, buf.v4l2_buf.index, buf.v4l2_buf.flags);
 }
 
-int TFlowEnc::onOutputReady(TFlowBuf &buf)
+int TFlowEnc::onOutputReady(TFlowBuf& buf)
 {
     assert(buf.state == TFlowBuf::BUF_STATE_APP);
 
     // Application callback here
-    app_onFrameEncoded(buf);
+    if (app_onFrameEncoded) {
+        app_onFrameEncoded(buf);
+    }
+    else {
+        enqueueOutputBuffer(buf);
+    }
+
 #if CODE_BROWSE
     TFlowUDPVStreamer::onFrameEncoded(buf);
     TFlowWSVStreamer::onFrameEncoded(buf);
@@ -275,58 +281,21 @@ TFlowBuf* TFlowEnc::getFreeInputBuffer()
     return nullptr;
 }
 
-int TFlowEnc::encodeInputBuffer(TFlowBuf &buf)
-{
-    if (!initialized) return 0;
-
-    // In assumption an application always provides full frame
-    //buf.v4l2_buf.m.planes[0].bytesused = buf.v4l2_buf.m.planes[0].length;
-    //buf.v4l2_buf.m.planes[0].data_offset = 0;
-
-    //auto timePerFrame =  (float)(1000000.0 / (1.0 * mFrameRate));
-    //buf->timestamp.tv_sec = frameCount * (long)(timePerFrame / 1000000);
-    //buf->timestamp.tv_usec = frameCount * ((long)timePerFrame % 1000000);
-
-    enqueueInputBuffer(buf);
-    return 0;
-}
-
 int TFlowEnc::enqueueOutputBuffer(TFlowBuf &buf)
 {
-    struct timespec tp;
-    clock_gettime(CLOCK_MONOTONIC, &tp);
-
+    // TODO: Check timestamp. In theory it should be from input buffer
+    //struct timespec tp;
+    //clock_gettime(CLOCK_MONOTONIC, &tp);
     //buf.v4l2_buf.timestamp.tv_sec = (uint32_t)tp.tv_sec; 
     //buf.v4l2_buf.timestamp.tv_usec = tp.tv_nsec / 1000;
 
-    //if (buf.v4l2_buf.type == input_fmt_type) {
-    //    // g_info("===ENC=== QBUF      %02d-%d   0x%08X", buf.v4l2_buf.type, buf.index, buf.v4l2_buf.flags);
-    //}
-
-    //if (-1 == ioctl(enc_dev_fd, VIDIOC_QUERYBUF, &output_bufs[0].v4l2_buf)) {
-    //    g_critical("Can't VIDIOC_QUERYBUF (%d)", errno);
-    //}
-    //if (output_bufs[0].v4l2_buf.flags & V4L2_BUF_FLAG_QUEUED) {
-    //    g_critical("=== !!! Already queued !!!");
-    //    assert(0);
-    //}
-    
-    struct v4l2_buffer buffer;
-    struct v4l2_plane plane[8];
-
-    memset(&buffer, 0, sizeof(buffer));
-    memset(&plane, 0, sizeof(plane));
-    buffer.index = 0;
-    buffer.type = output_fmt_type;
-    buffer.memory = V4L2_MEMORY_MMAP;
-    buffer.length = 1;
-    buffer.m.planes = plane;
-    buffer.m.planes->bytesused = 0;
-    buffer.m.planes->data_offset = 0;
+    buf.v4l2_buf.flags = 0;
+    buf.v4l2_buf.m.planes[0].bytesused = 0;
+    buf.v4l2_buf.m.planes[0].data_offset = 0;
 
     buf.state = TFlowBuf::BUF_STATE_DRIVER;
     // Put the buffer to driver's queue
-    if (-1 == ioctl(enc_dev_fd, VIDIOC_QBUF, &buffer)) {
+    if (-1 == ioctl(enc_dev_fd, VIDIOC_QBUF, &buf.v4l2_buf)) {
         g_critical("Can't VIDIOC_QBUF (%d) - %s", errno, strerror(errno));
         return -1;
     }
@@ -337,40 +306,33 @@ int TFlowEnc::enqueueOutputBuffer(TFlowBuf &buf)
 int TFlowEnc::enqueueInputBuffer(TFlowBuf &buf)
 {
     struct timespec tp;
+
+    if (!initialized) return 0;
+
+    // In assumption an application always provides full frame
+    buf.v4l2_buf.m.planes[0].bytesused = buf.v4l2_buf.m.planes[0].length;
+    buf.v4l2_buf.m.planes[0].data_offset = 0;
+    buf.v4l2_buf.flags = 0;
+
     clock_gettime(CLOCK_MONOTONIC, &tp);
+    buf.v4l2_buf.timestamp.tv_sec = (uint32_t)tp.tv_sec; 
+    buf.v4l2_buf.timestamp.tv_usec = tp.tv_nsec / 1000;
+    buf.v4l2_buf.flags |= V4L2_BUF_FLAG_TIMESTAMP_COPY;
 
-    struct v4l2_buffer buffer;
-    struct v4l2_plane plane[8];
-
-    //buf.v4l2_buf.timestamp.tv_sec = (uint32_t)tp.tv_sec; 
-    //buf.v4l2_buf.timestamp.tv_usec = tp.tv_nsec / 1000;
-
-    //if (buf.v4l2_buf.type == input_fmt_type) {
-    //    // g_info("===ENC=== QBUF      %02d-%d   0x%08X", buf.v4l2_buf.type, buf.index, buf.v4l2_buf.flags);
-    //}
-
-    //if (-1 == ioctl(enc_dev_fd, VIDIOC_QUERYBUF, &input_bufs[0].v4l2_buf)) {
-    //    g_critical("Can't VIDIOC_QUERYBUF (%d)", errno);
-    //}
-    //if (input_bufs[0].v4l2_buf.flags & V4L2_BUF_FLAG_QUEUED) {
-    //    g_critical("=== !!! Already queued !!!");
-    //    assert(0);
-    //}
-    
     buf.state = TFlowBuf::BUF_STATE_DRIVER;
 
-    memset(&buffer, 0, sizeof(buffer));
-    memset(&plane, 0, sizeof(plane));
-    buffer.index = 0;
-    buffer.type = input_fmt_type;
-    buffer.memory = V4L2_MEMORY_MMAP;
-    buffer.length = 1;
-    buffer.m.planes = plane;
-    buffer.m.planes->bytesused = 0x35280;
-    buffer.m.planes->data_offset = 0;
+    //memset(&buffer, 0, sizeof(buffer));
+    //memset(&plane, 0, sizeof(plane));
+    //buffer.index = 0;
+    //buffer.type = input_fmt_type;
+    //buffer.memory = V4L2_MEMORY_MMAP;
+    //buffer.length = 1;
+    //buffer.m.planes = plane;
+    //buffer.m.planes->bytesused = 0x35280;
+    //buffer.m.planes->data_offset = 0;
 
     // Put the buffer to driver's queue
-    if (-1 == ioctl(enc_dev_fd, VIDIOC_QBUF, &buffer)) {
+    if (-1 == ioctl(enc_dev_fd, VIDIOC_QBUF, &buf.v4l2_buf)) {
         g_critical("Can't VIDIOC_QBUF (%d) - %s", errno, strerror(errno));
         return -1;
     }
@@ -547,7 +509,7 @@ int TFlowEnc::setInputFormat()
 
     // Encoder may request another plane WxH despite enumerated frame sizes.
     // As Encoder gets frame's configuration from a parent module (for ex. TFlowDashboard),
-    // please modify one cofiguration accordingly.
+    // please modify one's configuration accordingly.
     assert(width ==  fmt.fmt.pix_mp.plane_fmt[0].bytesperline);
 
     return 0;
@@ -563,7 +525,15 @@ int TFlowEnc::setOutputFormat()
         return -1;
     }
 
-    fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_HEVC; //V4L2_PIX_FMT_HEVC;
+    if (cfg->codec.v.num == TFlowEncUI::ENC_CODEC_H264) {
+        fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
+    }
+    else if (cfg->codec.v.num == TFlowEncUI::ENC_CODEC_H265) {
+        fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_HEVC;
+    }
+    else {
+        assert(0);
+    }
 
     if (-1 == ioctl(enc_dev_fd, VIDIOC_S_FMT, &fmt)) {
         g_warning("Can't VIDIOC_S_FMT (%d) - %s", errno, strerror(errno));
@@ -727,7 +697,7 @@ int TFlowEnc::Open()
         char dev_name[16] = {};
         snprintf(dev_name, sizeof(dev_name), "/dev/video%d", dev_num);
 
-        int dev_fd = open(dev_name, O_RDWR, 0);    // | O_NONBLOCK
+        int dev_fd = open(dev_name, O_RDWR | O_NONBLOCK, 0);    // 
 
         if (dev_fd == -1) continue;
 
@@ -856,6 +826,22 @@ int TFlowEnc::queryCapability()
 
 TFlowEnc::~TFlowEnc()
 {
+    // Stop the thread
+    eventfd_write(drain_event, 1);
+
+    // Wait until all buffers released
+    pthread_join(th, nullptr);
+
+    close(enc_dev_fd);
+    enc_dev_fd = -1;
+
+    // Release buffers' memory
+    input_bufs.clear();
+    output_bufs.clear();
+
+#if CODE_BROWSE
+    TFlowBuf::~TFlowBuf()
+#endif
 
 }
 
@@ -872,11 +858,22 @@ TFlowEnc::TFlowEnc(MainContextPtr _context, int _w, int _h, const TFlowEncCfg::c
 
     CLEAR(capa);
 
+    frames_encoded = 0;
+    encoded_bytes = 0;  
+    encoded_bytes_prev = 0;  
+
+    clock_gettime(CLOCK_MONOTONIC, &wall_time_tp);
+    wall_time_prev_tp = wall_time_tp;
+
+    struct timespec wall_time_tp;
+    struct timespec wall_time_prev_tp;
+
     // Poll thread related
     CLEAR(th);
     CLEAR(th_cond);
 
     enc_thread_exit = 0;
+    drain_event = eventfd(0, 0);
 
     // fmt type set on Init()
     input_fmt_type = (enum v4l2_buf_type)0;
@@ -903,4 +900,92 @@ TFlowEnc::TFlowEnc(MainContextPtr _context, int _w, int _h, const TFlowEncCfg::c
         initialized = 1;
     }
  }    
+
+int TFlowEnc::onConfig(json11::Json::object& j_out_params, const TFlowEncCfg::cfg_v4l2_enc* cfg)
+{
+    int rc;
+    // On non-runtime reconfiguration restart Encoder
+    //
+
+    if (cfg->codec.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        // can't be changed on the fly - restart required
+        return -1;
+    }
+
+    enum {
+        HEVC_CTRL_HEVC_PROFILE,
+        HEVC_CTRL_HEVC_MIN_QP,
+        HEVC_CTRL_HEVC_MAX_QP,
+        HEVC_CTRL_HEVC_I_FRAME_QP,
+        HEVC_CTRL_HEVC_P_FRAME_QP,
+        HEVC_CTRL_GOP_SIZE,
+        HEVC_CTRL_BITRATE_MODE,
+        HEVC_CTRL_BITRATE,
+    };
+
+    struct v4l2_ext_control hevc_ctrls[] = {
+        ARRAY_INIT_IDX(HEVC_CTRL_HEVC_PROFILE   ) {.id = V4L2_CID_MPEG_VIDEO_HEVC_PROFILE,    .size = 0, .value64 = 0 },
+        ARRAY_INIT_IDX(HEVC_CTRL_HEVC_MIN_QP    ) {.id = V4L2_CID_MPEG_VIDEO_HEVC_MIN_QP,     .size = 0, .value64 = 0 },
+        ARRAY_INIT_IDX(HEVC_CTRL_HEVC_MAX_QP    ) {.id = V4L2_CID_MPEG_VIDEO_HEVC_MAX_QP,     .size = 0, .value64 = 0 },
+        ARRAY_INIT_IDX(HEVC_CTRL_HEVC_I_FRAME_QP) {.id = V4L2_CID_MPEG_VIDEO_HEVC_I_FRAME_QP, .size = 0, .value64 = 0 },
+        ARRAY_INIT_IDX(HEVC_CTRL_HEVC_P_FRAME_QP) {.id = V4L2_CID_MPEG_VIDEO_HEVC_P_FRAME_QP, .size = 0, .value64 = 0 },
+        ARRAY_INIT_IDX(HEVC_CTRL_GOP_SIZE       ) {.id = V4L2_CID_MPEG_VIDEO_GOP_SIZE,        .size = 0, .value64 = 0 },
+        ARRAY_INIT_IDX(HEVC_CTRL_BITRATE_MODE   ) {.id = V4L2_CID_MPEG_VIDEO_BITRATE_MODE,    .size = 0, .value64 = 0 },
+        ARRAY_INIT_IDX(HEVC_CTRL_BITRATE        ) {.id = V4L2_CID_MPEG_VIDEO_BITRATE,         .size = 0, .value64 = 0 },
+    };
+
+    struct v4l2_ext_controls ext_controls = {
+        .which = V4L2_CTRL_WHICH_CUR_VAL, .count = ARRAYSIZE(hevc_ctrls), .error_idx = 0,
+        .request_fd = enc_dev_fd, .controls = hevc_ctrls};
+
+    rc = ioctl(enc_dev_fd, VIDIOC_G_EXT_CTRLS, &ext_controls);
+    if (rc) {
+        // EACCES  || ENOSPC 
+        g_warning("TFlowEnc: Error reading external controls");
+        return 0;
+    }
+
+    if (cfg->profile.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        hevc_ctrls[HEVC_CTRL_HEVC_PROFILE].value = cfg->profile.v.num;
+    }
+
+    if (cfg->qp.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        hevc_ctrls[HEVC_CTRL_HEVC_MIN_QP].value = (*cfg->qp.v.vnum)[0];
+        hevc_ctrls[HEVC_CTRL_HEVC_MAX_QP].value = (*cfg->qp.v.vnum)[1];
+    }
+
+    if (cfg->qp_i.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        hevc_ctrls[HEVC_CTRL_HEVC_I_FRAME_QP].value = cfg->qp_i.v.num - 1;      /* Actual range is -1 .. 51, slider is 0..52 */
+    }
+
+    if (cfg->qp_p.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        hevc_ctrls[HEVC_CTRL_HEVC_P_FRAME_QP].value = cfg->qp_p.v.num - 1;      /* Actual range is -1 .. 51, slider is 0..52 */
+    }
+
+    if (cfg->gop_size.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        hevc_ctrls[HEVC_CTRL_GOP_SIZE].value = cfg->gop_size.v.num;
+    }
+
+    if (cfg->bitrate_mode.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        hevc_ctrls[HEVC_CTRL_BITRATE_MODE].value = cfg->bitrate_mode.v.num;
+    }
+
+    if (cfg->bitrate.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        hevc_ctrls[HEVC_CTRL_BITRATE].value = cfg->bitrate.v.num;
+    }
+
+    rc = ioctl(enc_dev_fd, VIDIOC_S_EXT_CTRLS, &ext_controls);
+    if (rc) {
+        // EACCES  || ENOSPC 
+        g_warning("TFlowEnc: Error setting controls (%d) - %s", errno, strerror(errno));
+        return 0;
+    }
+    else {
+
+    }
+
+    return 0;
+}
+
+
 

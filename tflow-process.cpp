@@ -72,8 +72,10 @@ TFlowBuf::TFlowBuf(int enc_fd, enum v4l2_buf_type type, int index, int planes_nu
     this->start = MAP_FAILED;
     this->state = BUF_STATE_BAD;
 
-    if (-1 == ioctl(enc_fd, VIDIOC_QUERYBUF, &v4l2_buf)) {
-        g_critical("Can't VIDIOC_QUERYBUF (%d)", errno);
+    int rc = ioctl(enc_fd, VIDIOC_QUERYBUF, &v4l2_buf);
+    if (rc) {
+        g_warning("Can't VIDIOC_QUERYBUF type=%d %d (%d) - %s",
+            type, rc, errno, strerror(errno));
     }
     else {
         // Record the length and mmap buffer to user space
@@ -473,9 +475,15 @@ void TFlowProcess::onSrcGone()
     }
 
     if (udp_streamer) {
-        delete ws_streamer;
+        delete udp_streamer;
         udp_streamer = nullptr;
     }
+
+    if (btc_comm) {
+        delete btc_comm;
+        btc_comm = nullptr;
+    }
+
 
     in_frames_ro.clear();
 }
