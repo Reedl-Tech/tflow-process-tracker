@@ -6,8 +6,7 @@
 
 #include "tflow-trck.hpp"
 
-using namespace cv;
-using namespace std;
+#define UV_RECT(_rect) cv::Rect(  (int)_rect.x/2, (int)_rect.y/2, (int)_rect.width/2, (int)_rect.height/2)
 
 class TFlowTrackerDashboard {
     
@@ -23,7 +22,7 @@ public:
 
     /* ======== Algo overrides ======= */
     void initDashboardFrame(uint8_t* data_ptr);
-    void initDashboardFrame();
+    void initDashboardFrame(TFlowBuf * buf);
     void getDashboardFrameBuff(const uint8_t** buff, size_t* buff_len);
     void getDashboardFrameSize(int* w, int* h);
     /* =============================== */
@@ -34,20 +33,27 @@ public:
 
     cv::Rect2f getGridSector();
     
-    void renderGrid(vector<draw::Prim>& prims);
+    void renderGrid(std::vector<cv::gapi::wip::draw::Prim>& prims);
     void render();
     
     void instrUpdate(const TFlowImu& imu);
 
-    Mat frameMain;
+    cv::Mat frameMain;
+    cv::Mat frameMainY;     // Mat wrapper for Y plane of frameMain
+    cv::Mat frameMainUV;    // Mat wrapper for UV plane of frameMain
+  
+    cv::Size frame_size_nv12;
+    cv::Size frame_size_Y;
+    cv::Size frame_size_UV;
 
-    Mat frameMainY;     // Mat wrapper for Y plane of frameMain
-    Mat frameMainUV;    // Mat wrapper for UV plane of frameMain
-    Rect frameCamRect;  // Rectangle within frameMain where camera frame will be rendered to.
+    cv::Rect frameCamRect;  // Rectangle within frameMain where camera frame will be rendered to.
 
-    Mat frameCam;
-    Mat frameCamY;
-    Mat frameCamUV;
+    cv::Mat frameCamY;
+    cv::Mat frameCamUV;
+
+    //    Size frame_cam_size_nv12;
+    //Size frame_cam_size_Y;
+    //Size frame_cam_size_UV;
 
 #if OFFLINE_PROCESS
     // imshow can't render NV12
@@ -57,12 +63,12 @@ public:
 
     int instr_refresh;
 
-    const Size2f frame_size;  // Copy of config param for more convenient access. 
-                              // Att!: It is not the same as the Camera frame size.
-                              //       Dashboard size might be smaller or bigger
-                              //       than an input frame from a camera. 
+    const cv::Size2f frame_size;  // Copy of config param for more convenient access. 
+                                  // Att!: It is not the same as the Camera frame size.
+                                  //       Dashboard size might be smaller or bigger
+                                  //       than an input frame from a camera. 
 
-    std::vector<draw::Prim> instr_prims;
+    std::vector<cv::gapi::wip::draw::Prim> instr_prims;
 
 #if BTC
     /* Preview mode */
@@ -103,12 +109,12 @@ private:
     void pitchInitRender();
 
     void instrRender();
-    void instrRenderRoll(vector<draw::Prim>& prims, const Point2f& center, float roll_rad);
-    void instrRenderPitch(vector<draw::Prim>& prims, const Point2f& center, float pitch_rad);
-    void instrRenderAltitude(vector<draw::Prim>& prims, const Point2f& center, float alt_baro);
-    void instrRenderCompass(vector<draw::Prim>& prims, const Point2f& center);
+    void instrRenderRoll    (std::vector<cv::gapi::wip::draw::Prim>& prims, const cv::Point2f& center, float roll_rad);
+    void instrRenderPitch   (std::vector<cv::gapi::wip::draw::Prim>& prims, const cv::Point2f& center, float pitch_rad);
+    void instrRenderAltitude(std::vector<cv::gapi::wip::draw::Prim>& prims, const cv::Point2f& center, float alt_baro);
+    void instrRenderCompass (std::vector<cv::gapi::wip::draw::Prim>& prims, const cv::Point2f& center);
 
-    void compassRenderYaw(vector<draw::Prim>& prims, const Point2f& center, float yaw);
+    void compassRenderYaw(std::vector<draw::Prim>& prims, const cv::Point2f& center, float yaw);
 
     int grid_zoom_step = 0;       // 
     int grid_sector_ext = 0;      // Grid's sector extension in percent

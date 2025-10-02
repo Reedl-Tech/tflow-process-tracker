@@ -124,14 +124,6 @@ public:
         TFLOW_CMD_EOMSG
     };
 
-    TFlowPerfMon::cfg_tflow_perfmon cmd_flds_cfg_perfmon = {
-        .head         = { "per_fmon",        TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
-        .dbg_render   = { "dbg_render",      TFlowCtrl::CFT_NUM, 0, {.num =   2} },
-        .lbl_x        = { "lbl_x",           TFlowCtrl::CFT_NUM, 0, {.num = 300} },
-        .lbl_y        = { "lbl_y",           TFlowCtrl::CFT_NUM, 0, {.num = 260} },
-        TFLOW_CMD_EOMSG
-    };
-
     struct cfg_trck_dashboard {
         TFlowCtrl::tflow_cmd_field_t   head;
         TFlowCtrl::tflow_cmd_field_t   main_win_w;
@@ -144,10 +136,10 @@ public:
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_trck_dashboard = {
         TFLOW_CMD_HEAD("dashboard"),
-        .main_win_w         = { "main_win_w", TFlowCtrl::CFT_NUM, 0, {.num = 424} },        // Fix me!!! Parameters not read from config file. Something wrong with "ref skip"
-        .main_win_h         = { "main_win_h", TFlowCtrl::CFT_NUM, 0, {.num = 328} },
+        .main_win_w         = { "main_win_w", TFlowCtrl::CFT_NUM, 0, {.num = 432} },        // Fix me!!! Parameters not read from config file. Something wrong with "ref skip"
+        .main_win_h         = { "main_win_h", TFlowCtrl::CFT_NUM, 0, {.num = 336} },
         .time_fmt           = { "time_fmt",   TFlowCtrl::CFT_STR, 0, {.str = nullptr}, &ui_dd_time_fmt },
-        .time_lbl_x         = { "time_lbl_x", TFlowCtrl::CFT_NUM, 0, {.num = 750}, &ui_edit_def },
+        .time_lbl_x         = { "time_lbl_x", TFlowCtrl::CFT_NUM, 0, {.num = 380}, &ui_edit_def },
         .time_lbl_y         = { "time_lbl_y", TFlowCtrl::CFT_NUM, 0, {.num =  20}, &ui_edit_def },
         .instrument         = { "instrument", TFlowCtrl::CFT_NUM, 0, {.num =   0} },
         TFLOW_CMD_EOMSG
@@ -202,11 +194,11 @@ public:
         .pitch_hold_fast       = { "pitch_hold_fast",       TFlowCtrl::CFT_VNUM, 0, {.vnum = &pitch_hold_fast_value}, &ui_sl2_pitch_hold_fast },
         .dbg_render            = { "dbg_render",            TFlowCtrl::CFT_NUM, 0, {.num =     0},  &ui_edit_def },
         .grid                  = { "grid",                  TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
-        .gftt_flytime          = { "gftt_flytime", TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_gftt_flytime.head  } },
-        .gftt_preview          = { "gftt_preview", TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_gftt_preview.head  } },
-        .servo_pitch           = { "servo_pitch",  TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_servo_pitch.head        }, &ui_group_def },
-        .perfmon               = { "perf_mon",     TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_perfmon.head            } },
-        .dashboard             = { "dashboard",    TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_dashboard.head     }, &ui_group_def },
+        .gftt_flytime          = { "gftt_flytime", TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_gftt_flytime.head         } },
+        .gftt_preview          = { "gftt_preview", TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_gftt_preview.head         } },
+        .servo_pitch           = { "servo_pitch",  TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_servo_pitch.head               }, &ui_group_def },
+        .perfmon               = { "perfmon",      TFlowCtrl::CFT_REF, 0, {.ref = &tflow_perfmon_cfg.cmd_flds_cfg_perfmon.head }, &ui_group_def },
+        .dashboard             = { "dashboard",    TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_dashboard.head            }, &ui_group_def },
         TFLOW_CMD_EOMSG
     };
 

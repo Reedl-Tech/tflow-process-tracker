@@ -10,6 +10,8 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 
+#include <sys/eventfd.h>
+
 #include <giomm.h>
 #include <glib-unix.h>
 #include <json11.hpp>
@@ -31,7 +33,11 @@ using namespace std;
 namespace draw = cv::gapi::wip::draw;
 
 #define IDLE_INTERVAL_MSEC 100
-#define FIFO_STREAMER 1
+
+#define FIFO_STREAMER    0
+#define VSTREAM_STREAMER 0
+#define WS_STREAMER      1
+#define UDP_STREAMER     0
 
 int g_dbg_me = 0;
 
@@ -43,42 +49,88 @@ TFlowBuf::~TFlowBuf()
         munmap(start, length);
         start = MAP_FAILED;
     }
+
+    if (v4l2_buf.m.planes) {
+        free(v4l2_buf.m.planes);
+    }
+}
+
+TFlowBuf::TFlowBuf(int enc_fd, enum v4l2_buf_type type, int index, int planes_num)
+{
+    v4l2_plane *plane = (struct v4l2_plane*)calloc(VIDEO_MAX_PLANES, sizeof(struct v4l2_plane)); // TODO: ??? planes_num allocate number of planes used only ???
+    assert(plane);
+
+    CLEAR(v4l2_buf);
+    v4l2_buf.type     = type;
+    v4l2_buf.memory   = V4L2_MEMORY_MMAP;
+    v4l2_buf.m.planes = plane;
+    v4l2_buf.length   = planes_num;
+    v4l2_buf.index    = index;
+
+    this->index = -1;   
+    this->length = 0;
+    this->start = MAP_FAILED;
+    this->state = BUF_STATE_BAD;
+
+    if (-1 == ioctl(enc_fd, VIDIOC_QUERYBUF, &v4l2_buf)) {
+        g_critical("Can't VIDIOC_QUERYBUF (%d)", errno);
+    }
+    else {
+        // Record the length and mmap buffer to user space
+        this->length = v4l2_buf.m.planes[0].length;
+        this->start = mmap(nullptr, v4l2_buf.m.planes[0].length,
+            PROT_READ | PROT_WRITE, MAP_SHARED, enc_fd, v4l2_buf.m.planes[0].m.mem_offset);
+        this->index = index;
+        this->state = BUF_STATE_FREE;
+    }
 }
 
 TFlowBuf::TFlowBuf(int cam_fd, int index, int planes_num)
 {
-    v4l2_buffer v4l2_buf{};
+    // This constructor is used for captures from camera and doesn't use v4l2_buf
+    memset(&this->v4l2_buf, 0, sizeof(v4l2_buf));
+
+    v4l2_buffer v4l2_buf_temp = {0};
     v4l2_plane mplanes[planes_num];
 
-    v4l2_buf.type       = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    v4l2_buf.memory     = V4L2_MEMORY_MMAP;
-    v4l2_buf.m.planes   = mplanes;
-    v4l2_buf.length     = planes_num;
+    v4l2_buf_temp.type       = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    v4l2_buf_temp.memory     = V4L2_MEMORY_MMAP;
+    v4l2_buf_temp.m.planes   = mplanes;
+    v4l2_buf_temp.length     = planes_num;
 
-    v4l2_buf.index = index;
+    v4l2_buf_temp.index = index;
 
     this->index = -1;
     this->length = 0;
     this->start = MAP_FAILED;
 
     // Query the information of the buffer with index=n into struct buf
-    if (-1 == ioctl(cam_fd, VIDIOC_QUERYBUF, &v4l2_buf)) {
+    if (-1 == ioctl(cam_fd, VIDIOC_QUERYBUF, &v4l2_buf_temp)) {
         g_warning("Can't VIDIOC_QUERYBUF (%d)", errno);
     }
     else {
         // Record the length and mmap buffer to user space
-        this->length = v4l2_buf.m.planes[0].length;
-        this->start = mmap(nullptr, v4l2_buf.m.planes[0].length,
-            PROT_READ | PROT_WRITE, MAP_SHARED, cam_fd, v4l2_buf.m.planes[0].m.mem_offset);
+        this->length = v4l2_buf_temp.m.planes[0].length;
+        this->start = mmap(nullptr, v4l2_buf_temp.m.planes[0].length,
+            PROT_READ | PROT_WRITE, MAP_SHARED, cam_fd, v4l2_buf_temp.m.planes[0].m.mem_offset);
         this->index = index;
     }
 }
 
 TFlowBuf::TFlowBuf()
 {
-    this->index = -1;
-    this->length = 0;
-    this->start = MAP_FAILED;
+    memset(&ts, 0, sizeof(ts));
+    sequence = 0;
+
+    /* Parameters obtained from Kernel on the Client side */
+    index = -1;
+    length = 0;
+    start = MAP_FAILED;
+
+    owners = 0;             // Bit mask of TFlowBufCli. Bit 0 - means buffer is in user space
+
+    aux_data_len = 0;
+    aux_data = nullptr;
 }
 
 int TFlowBuf::age() {
@@ -94,6 +146,13 @@ int TFlowBuf::age() {
 }
 
 TFlowProcess::TFlowProcess(MainContextPtr _context, const std::string cfg_fname) :
+    buf_cli(nullptr),           // ATT: Order is important here!!! Keep initialization order according to declaration one.
+    player(nullptr),
+    fifo_streamer(nullptr),
+    ws_streamer(nullptr),
+    udp_streamer(nullptr),
+    btc_comm(nullptr),
+    algo(nullptr),
     context(_context),
     ctrl(*this, cfg_fname)
 {
@@ -117,12 +176,6 @@ TFlowProcess::TFlowProcess(MainContextPtr _context, const std::string cfg_fname)
     }
     
     main_loop = Glib::MainLoop::create(context, false);
-
-
-    buf_cli = nullptr;
-    player = nullptr;
-    fifo_streamer = nullptr;    // Created on SrcReady Player or buf_cli
-    btc_comm = nullptr;
 
     // Get OpenCL configuration from config
     setOpenCL(ctrl.cmd_flds_config.opencl.v.num);
@@ -238,8 +291,6 @@ void TFlowProcess::setOpenCL(int ocl_enabled) {
                 device.OpenCL_C_Version().c_str());
         }
     }
-    // cv::ocl::Device(context.device(0));
-
 }
 
 int TFlowProcess::setVideoSrc(const char* video_src)
@@ -296,15 +347,31 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
 {
     int cnt = sp_pck.use_count();
 
+    static clock_t proc_frame_profile[5];
+
+    proc_frame_profile[0] = clock();
+
     if (!algo) return;
 
 #if FIFO_STREAMER
-    algo->initDashboardFrame();
+    algo->initDashboardFrame((uint8_t*)nullptr);
+#elif WS_STREAMER 
+
+    algo->initDashboardFrame((uint8_t*)nullptr);
+
+#elif UDP_STREAMER 
+
+    algo->initDashboardFrame((uint8_t*)nullptr);
+
 #elif VSTREAM_STREAMER
     algo->initDashboardFrame(streamer->getNextDataBuffer());
 #endif
+    proc_frame_profile[1] = clock();
 
     algo->onFrame(sp_pck);
+    //usleep(30000);
+
+    proc_frame_profile[2] = clock();
 
     // If buffer client is connected, then send the result back to the 
     // frames buffers originator (for ex. tflow-capture).
@@ -316,6 +383,8 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
         }
     }
 
+    proc_frame_profile[3] = clock();
+
 #if FIFO_STREAMER
     if (fifo_streamer) {
         const uint8_t* buff;
@@ -323,9 +392,60 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
         algo->getDashboardFrameBuff(&buff, &buff_len);
         fifo_streamer->fifoWrite(buff, buff_len);
     }
+#elif WS_STREAMER 
+    if (ws_streamer) {      
+
+        TFlowBuf* dashboard_buf = ws_streamer ? ws_streamer->getFreeBuffer() : nullptr;
+
+        if (dashboard_buf) {
+            const uint8_t* buff;
+            size_t buff_len;
+            algo->getDashboardFrameBuff(&buff, &buff_len);
+            memcpy(dashboard_buf->start, buff, buff_len);
+            ws_streamer->consumeBuffer(*dashboard_buf);
+        }
+        else {
+            static int cnt = 0;
+            g_info("============== can't get free buffer %d =============", cnt++ );
+//            udp_streamer->encoder->recover_input(0);
+        }
+    }
+#elif UDP_STREAMER 
+
+    if (udp_streamer) {      
+        const uint8_t* buff;
+        size_t buff_len;
+        algo->getDashboardFrameBuff(&buff, &buff_len);
+
+        TFlowBuf* dashboard_buf = udp_streamer ? udp_streamer->getFreeBuffer() : nullptr;
+
+        if (dashboard_buf) {
+            memcpy(dashboard_buf->start, buff, buff_len);
+#if 0
+            udp_streamer->consumeBuffer(*dashboard_buf);
+#else
+            eventfd_write(udp_streamer->encoder->enqueue_input_fd, 1);
+#endif
+        }
+        else {
+            static int cnt = 0;
+            g_info("============== can't get free buffer %d =============", cnt++ );
+//            udp_streamer->encoder->recover_input(0);
+        }
+    }
+
 #elif VSTREAM_STREAMER
     streamer->consume(free_buff_idx);
 #endif
+
+    proc_frame_profile[4] = clock();
+
+    //g_info("Process profile: Total: %-5d, init %-5d, algo %-5d, redeem %-5d, send %-5d",
+    //        proc_frame_profile[4] - proc_frame_profile[0],
+    //        proc_frame_profile[1] - proc_frame_profile[0],
+    //        proc_frame_profile[2] - proc_frame_profile[1],
+    //        proc_frame_profile[3] - proc_frame_profile[2],
+    //        proc_frame_profile[4] - proc_frame_profile[3]);
 
     int cnt1 = sp_pck.use_count();
 }
@@ -347,7 +467,17 @@ void TFlowProcess::onSrcGone()
         fifo_streamer = nullptr;
     }
 
-    in_frames.clear();
+    if (ws_streamer) {
+        delete ws_streamer;
+        ws_streamer = nullptr;
+    }
+
+    if (udp_streamer) {
+        delete ws_streamer;
+        udp_streamer = nullptr;
+    }
+
+    in_frames_ro.clear();
 }
 
 void TFlowProcess::onConnect()
@@ -360,7 +490,13 @@ void TFlowProcess::onDisconnect()
 
 void TFlowProcess::onSrcReady()
 {
-    algo = TFlowAlgo::createAlgoInstance(in_frames);
+    algo = TFlowAlgo::createAlgoInstance(in_frames_ro);
+
+    btc_comm = new TFlowBtc(context,
+        std::bind(&TFlowProcess::onBtcMsg, this, std::placeholders::_1));
+
+    int dashboard_w, dashboard_h;
+    algo->getDashboardFrameSize(&dashboard_w, &dashboard_h);
 
 #if FIFO_STREAMER
     /* Note: In case of Streamer reuse existing fifo for
@@ -373,20 +509,28 @@ void TFlowProcess::onSrcReady()
      */
     fifo_streamer = new TFlowStreamer();
 
+#elif WS_STREAMER
+    
+    const TFlowWSStreamerCfg::cfg_ws_streamer* ws_streamer_cfg = 
+        (TFlowWSStreamerCfg::cfg_ws_streamer*)ctrl.cmd_flds_config.ws_streamer.v.ref;
+
+    ws_streamer = new TFlowWsVStreamer(context, dashboard_w, dashboard_h, ws_streamer_cfg);
+
+#elif UDP_STREAMER
+    
+    const TFlowUDPStreamerCfg::cfg_udp_streamer* udp_streamer_cfg = 
+        (TFlowUDPStreamerCfg::cfg_udp_streamer*)ctrl.cmd_flds_config.udp_streamer.v.ref;
+
+    udp_streamer = new TFlowUDPVStreamer(context, dashboard_w, dashboard_h, udp_streamer_cfg);
+
 #elif VSTREAM_STREAMER
-    float dashboard_w, dashboard_h;
-    algo->getDashboardFrameSize(&dashboard_w, &dashboard_h);
     //streamer = new TFlowStreamerProcess(this, context, 
     //    dashboard_w,
     //    dashboard_h,
     //    V4L2_PIX_FMT_BGR24,
     //    0);
 #endif
-
-    btc_comm = new TFlowBtc(context,
-                std::bind(&TFlowProcess::onBtcMsg, this, std::placeholders::_1));
 }
-
 
 void TFlowProcess::onSrcReadyPlayer()
 {
@@ -400,8 +544,10 @@ void TFlowProcess::onSrcReadyPlayer()
         mat_fmt = CV_8UC1;
     }
 
+    in_frames_ro.reserve(player->buffs_num);
+
     for (int i = 0; i < player->buffs_num; i++) {
-        in_frames.emplace_back(
+        in_frames_ro.emplace_back(
             player->frame_height, player->frame_width, mat_fmt, player->frames_tbl[i].data);       // Mat() constructor
     }
     onSrcReady();
@@ -419,9 +565,11 @@ void TFlowProcess::onSrcReadyCam(TFlowBufPck::pck_fd* src_info)
         mat_fmt = CV_8UC1;
     }
 
+    in_frames_ro.reserve(src_info->buffs_num);
+
     for (int i = 0; i < src_info->buffs_num; i++) {
-        in_frames.emplace_back(
-            src_info->height, src_info->width, mat_fmt, buf_cli->tflow_bufs.at(i).start);       // Mat() constructor
+        in_frames_ro.emplace_back(
+            src_info->height, src_info->width, mat_fmt, buf_cli->tflow_bufs.at(i).start);       // Mat() constructor with captured frame
     }
 
     onSrcReady();
@@ -500,7 +648,6 @@ int TFlowStreamerProcess::shmQuery()
     return 0;
 }
 
-
 int TFlowStreamerProcess::getNextBufferIdx()
 {
     int free_buff_idx = -1;
@@ -556,12 +703,9 @@ void TFlowStreamerProcess::consume(int buff_idx)
 
 void TFlowStreamerProcess::onIdleStreamer(struct timespec now_ts)
 {
-    onIdle(now_ts);
-#if CODE_BROWSE
     TFlowBufSrv::onIdle(now_ts);
-#endif
 }
-                                
+
 void TFlowProcess::onBtcMsg(const char *btc_msg)
 {
     int event = 0;

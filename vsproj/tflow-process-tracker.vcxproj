@@ -159,7 +159,12 @@
     <RemoteBuildOutputs>../oe-workdir/tflow-process-tracker-1.0/tflow-process-tracker</RemoteBuildOutputs>
   </PropertyGroup>
   <ItemGroup>
+    <ClCompile Include="..\encoder-v4l2\tflow-v4l2enc.cpp" />
     <ClCompile Include="..\main.cpp" />
+    <ClCompile Include="..\mongoose.c" />
+    <ClCompile Include="..\streamer-udp\tflow-udp-vstreamer-if.cpp" />
+    <ClCompile Include="..\streamer-udp\tflow-udp-vstreamer.cpp" />
+    <ClCompile Include="..\streamer-ws\tflow-ws-vstreamer.cpp" />
     <ClCompile Include="..\tflow-btc.cpp" />
     <ClCompile Include="..\tflow-buf-cli.cpp" />
     <ClCompile Include="..\tflow-buf-srv.cpp" />
@@ -172,7 +177,7 @@
     <ClCompile Include="..\tflow-process.cpp" />
     <ClCompile Include="..\tflow-pwm.cpp" />
     <ClCompile Include="..\tflow-render.cpp" />
-    <ClCompile Include="..\tflow-streamer.cpp" />
+    <ClCompile Include="..\tflow-fifo-streamer.cpp" />
     <ClCompile Include="..\tflow-tracelog.cpp" />
     <ClCompile Include="..\tracker\tflow-trck-dashboard.cpp" />
     <ClCompile Include="..\tracker\tflow-trck-feature.cpp" />
@@ -181,6 +186,13 @@
     <ClCompile Include="..\tracker\tflow-trck.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\encoder-v4l2\tflow-v4l2enc-cfg.hpp" />
+    <ClInclude Include="..\encoder-v4l2\tflow-v4l2enc.hpp" />
+    <ClInclude Include="..\mongoose.h" />
+    <ClInclude Include="..\streamer-udp\tflow-udp-vstreamer-cfg.hpp" />
+    <ClInclude Include="..\streamer-udp\tflow-udp-vstreamer.hpp" />
+    <ClInclude Include="..\streamer-ws\tflow-ws-vstreamer-cfg.hpp" />
+    <ClInclude Include="..\streamer-ws\tflow-ws-vstreamer.hpp" />
     <ClInclude Include="..\tflow-algo.hpp" />
     <ClInclude Include="..\tflow-btc.hpp" />
     <ClInclude Include="..\tflow-buf-cli.hpp" />
@@ -196,12 +208,13 @@
     <ClInclude Include="..\tflow-ctrl-srv.hpp" />
     <ClInclude Include="..\tflow-ctrl.hpp" />
     <ClInclude Include="..\tflow-glib.hpp" />
+    <ClInclude Include="..\tflow-streamer.hpp" />
     <ClInclude Include="..\tflow-perfmon.hpp" />
     <ClInclude Include="..\tflow-player.hpp" />
     <ClInclude Include="..\tflow-process.hpp" />
     <ClInclude Include="..\tflow-pwm.hpp" />
     <ClInclude Include="..\tflow-render.hpp" />
-    <ClInclude Include="..\tflow-streamer.hpp" />
+    <ClInclude Include="..\tflow-fifo-streamer.hpp" />
     <ClInclude Include="..\tflow-tracelog.hpp" />
     <ClInclude Include="..\tracker\tflow-trck-cfg.hpp" />
     <ClInclude Include="..\tracker\tflow-trck-dashboard.hpp" />

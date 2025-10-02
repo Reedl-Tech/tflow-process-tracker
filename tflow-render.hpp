@@ -10,3 +10,4 @@ extern const cv::Scalar orange;
 extern const cv::Scalar green;
 extern const cv::Scalar coral;
 extern const cv::Scalar white;
+extern const cv::Scalar gray;

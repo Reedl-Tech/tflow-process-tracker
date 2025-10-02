@@ -7,9 +7,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/gapi.hpp>
 
-#include "tflow-ctrl-process.hpp"
-
-namespace draw = cv::gapi::wip::draw;
+#include "tflow-ctrl.hpp"
 
 #if _WIN32
 // clock definition isn't in use yet
@@ -18,12 +16,58 @@ namespace draw = cv::gapi::wip::draw;
 int clock_gettime(int X, struct timespec* tp);
 #endif
 
+class TFlowPerfMonUI : public TFlowCtrlUI {
+public:
+    enum PERFMON_SHOW {
+        DISABLED  = 0,
+        FPS       = 1,
+        LOAD_MSEC = 2,
+        LOAD_PERC = 3,
+        LAST      = 4,
+        NUM = LAST + 1
+    };
+
+    const char *perfmon_show_entries[PERFMON_SHOW::NUM] = {
+        [PERFMON_SHOW::DISABLED]  = "Disabled",
+        [PERFMON_SHOW::FPS]       = "FPS",
+        [PERFMON_SHOW::LOAD_MSEC] = "Load(ms)",
+        [PERFMON_SHOW::LOAD_PERC] = "Load(%)",
+        [PERFMON_SHOW::LAST]      = nullptr
+    };
+
+    struct TFlowCtrlUI::uictrl ui_dd_perfmon_dbg = {
+        .label = "Show",
+        .type = TFlowCtrlUI::UICTRL_TYPE::DROPDOWN,
+        .size = 7,
+        .dropdown = {.val = (const char **)&perfmon_show_entries }
+    };
+
+};
+
+class TFlowPerfMonCfg : public TFlowPerfMonUI {
+public:    
+    struct cfg_tflow_perfmon {
+        TFlowCtrl::tflow_cmd_field_t   head;
+        TFlowCtrl::tflow_cmd_field_t   dbg_render;
+        TFlowCtrl::tflow_cmd_field_t   lbl_x;
+        TFlowCtrl::tflow_cmd_field_t   lbl_y;
+        TFlowCtrl::tflow_cmd_field_t   eomsg;
+    } cmd_flds_cfg_perfmon = {
+        TFLOW_CMD_HEAD("navigator-perfmon"),
+        .dbg_render   = { "dbg_render", TFlowCtrl::CFT_NUM, 0, {.num =   2}, &ui_dd_perfmon_dbg },
+        .lbl_x        = { "lbl_x",      TFlowCtrl::CFT_NUM, 0, {.num = 300} },
+        .lbl_y        = { "lbl_y",      TFlowCtrl::CFT_NUM, 0, {.num = 260} },
+        TFLOW_CMD_EOMSG
+    };
+};
+
 template<class T>
 class TFlowMovAvg
 {
 public:
     TFlowMovAvg(int n) {
         buf = std::vector<T>(n, 0);
+        acc = (T)0;
         it_buf = buf.begin();
     }
     T acc;
@@ -66,21 +110,12 @@ public:
         FPS       = (1 << 2),
     };
 
-    struct cfg_tflow_perfmon {
-        TFlowCtrl::tflow_cmd_field_t   head;
-        TFlowCtrl::tflow_cmd_field_t   dbg_render;
-        TFlowCtrl::tflow_cmd_field_t   lbl_x;
-        TFlowCtrl::tflow_cmd_field_t   lbl_y;
-        TFlowCtrl::tflow_cmd_field_t   eomsg;
-    };
-
-    TFlowPerfMon(const struct cfg_tflow_perfmon* cfg);
+    TFlowPerfMon(const TFlowPerfMonCfg::cfg_tflow_perfmon* cfg);
 
     void tickStart();
     void tickStop();
-    void Render(std::vector<draw::Prim>& prims);
-    const struct cfg_tflow_perfmon* cfg;
-
+    void Render(std::vector<cv::gapi::wip::draw::Prim>& prims);
+    const TFlowPerfMonCfg::cfg_tflow_perfmon* cfg;
 
     static struct timespec diff_timespec(const struct timespec* time1, const struct timespec* time0);
     static double diff_timespec_msec(const struct timespec* time1, const struct timespec* time0);
@@ -94,7 +129,9 @@ private:
     struct timespec wall_time_prev_tp;
     double dt_wall_time_ms;
 
-    TFlowMovAvg<clock_t> avg_load { 8 };
-    TFlowMovAvg<double> avg_fps { 8 };
+    TFlowMovAvg<clock_t> avg_load { 32 };
+    TFlowMovAvg<double> avg_fps { 32 };
 
 };
+
+extern TFlowPerfMonCfg tflow_perfmon_cfg;

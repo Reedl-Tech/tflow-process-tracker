@@ -14,7 +14,6 @@ public:
     struct TFlowCtrlUI::uictrl ui_custom_video_src = {
         .type = (TFlowCtrlUI::UICTRL_TYPE)UICTRL_TYPE_CUSTOM::VIDEO_SRC,
     };
-
 };
 
 

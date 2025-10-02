@@ -11,7 +11,7 @@
 
 #include <glib-unix.h>
 
-#include "tflow-streamer.hpp"
+#include "tflow-fifo-streamer.hpp"
 
 TFlowStreamer::TFlowStreamer()
 {

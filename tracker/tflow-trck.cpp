@@ -1,6 +1,7 @@
 #include "../tflow-build-cfg.hpp"
 
 #if _WIN32
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #else 
 #include <giomm.h>
@@ -64,11 +65,11 @@ static void initGridRect(const cv::Rect2f& grid_rect, std::vector<cv::Rect2f>& g
 }
 
 TFlowTracker::TFlowTracker(
-    std::vector<cv::Mat>& _in_frames,
+    std::vector<cv::Mat>& _in_frames_ro,
     const TFlowTrackerCfg::cfg_tracker* _cfg) :
 
     dbg_str{ TRACE_EN },
-    in_frames(_in_frames),
+    in_frames_ro(_in_frames_ro),
 
 #if ATIC320_9p1mm
 #elif TWIN412_9p1mm
@@ -78,20 +79,20 @@ TFlowTracker::TFlowTracker(
     gftt_flytime(
         (TFlowTrackerCfg::cfg_trck_gftt_flytime*)(_cfg->gftt_flytime.v.ref),
         (TFlowTrackerCfg::cfg_trck_gftt_preview*)(_cfg->gftt_preview.v.ref),
-        in_frames.at(0).cols, in_frames.at(0).rows),
+        in_frames_ro.at(0).cols, in_frames_ro.at(0).rows),
     gftt_preview(
         (TFlowTrackerCfg::cfg_trck_gftt_flytime*)(_cfg->gftt_flytime.v.ref),
         (TFlowTrackerCfg::cfg_trck_gftt_preview*)(_cfg->gftt_preview.v.ref),
-        in_frames.at(0).cols, in_frames.at(0).rows),
+        in_frames_ro.at(0).cols, in_frames_ro.at(0).rows),
 
-    perf_mon((TFlowPerfMon::cfg_tflow_perfmon*)_cfg->perfmon.v.ref),
-    servo_pitch((TFlowPWM::cfg_tflow_servo_cntrl*)_cfg->servo_pitch.v.ref),
-    dashboard((TFlowTrackerCfg::cfg_trck_dashboard*)_cfg->dashboard.v.ref, in_frames.at(0).cols, in_frames.at(0).rows),
-    tgt(in_frames.at(0).cols, in_frames.at(0).rows)
+    perf_mon((const TFlowPerfMonCfg::cfg_tflow_perfmon*)_cfg->perfmon.v.ref),
+    servo_pitch((const TFlowPWM::cfg_tflow_servo_cntrl*)_cfg->servo_pitch.v.ref),
+    dashboard((const TFlowTrackerCfg::cfg_trck_dashboard*)_cfg->dashboard.v.ref, in_frames_ro.at(0).cols, in_frames_ro.at(0).rows),
+    tgt(in_frames_ro.at(0).cols, in_frames_ro.at(0).rows)
 {
     cfg = _cfg;
 
-    frame_size = Size(in_frames.at(0).cols, in_frames.at(0).rows);
+    frame_size = Size(in_frames_ro.at(0).cols, in_frames_ro.at(0).rows);
     
     CleanUp();
 
@@ -644,6 +645,10 @@ void TFlowTracker::onPointer(int event, int x, int y, int flags)
 
 void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
 {
+    static clock_t tracker_frame_profile[7];
+
+    tracker_frame_profile[0] = clock();
+
     // In case of Player Scenario it is possible that the algorithm has 
     // to update the dashboard only. In that case sp_pck_in will be NULL
     if (sp_pck_in || dashboard.preview_force_frame) {
@@ -652,8 +657,8 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
             tgt.getData(sp_pck_in->d.consume.aux_data, sp_pck_in->d.consume.aux_data_len);
 
             TFlowBufPck::pck_consume* pck_curr = &sp_pck_in->d.consume;
-            Mat& frame_curr = in_frames.at(pck_curr->buff_index);
-            onFrameAlgo(frame_curr);
+            Mat& frame_curr_ro = in_frames_ro.at(pck_curr->buff_index);
+            onFrameAlgo(frame_curr_ro);
         } else if (dashboard.preview_force_frame) {
             // Frame is not changed but we have some inputs from a user.
             // Let's reuse previous frame for processing.
@@ -662,11 +667,20 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
             }
         }
 
-        // Copy input frame into a dedicated NV12 Mat
-        if (pyr_curr && (*pyr_curr).size() > 0 && !(*pyr_curr)[0].empty()) {
-            dashboard.frameCamY = (*pyr_curr)[0] + 16; //  frame_curr 
-            dashboard.frameCamUV = cv::Scalar(128, 128);
+        tracker_frame_profile[1] = clock();
+
+        // Copy input frame into a dedicated Dashboard's NV12 Mat
+        // Normally frameCam is sub Mat of Dashboard's mainFrame.
+        // As CamY and CamUV always create in pair, check Y Mat only.
+        if (pyr_curr && (*pyr_curr).size() > 0 && !(*pyr_curr)[0].empty() &&
+            !dashboard.frameCamY.empty()) {
+
+             (*pyr_curr)[0].copyTo(dashboard.frameCamY);
+            dashboard.frameCamY += 16;                      // +16 -> NV12 specific
+            dashboard.frameCamUV = cv::Scalar(128, 128);    // No color components in algo -> fill with default const
         }
+
+        tracker_frame_profile[2] = clock();
 
         // Render in frame debug info
         force_redraw = 1;
@@ -675,7 +689,10 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
     if (force_redraw) {
         // Redraw on each frame and/or configuration update
         force_redraw = 0;
-        RenderDebugInfo(dashboard.frameCam);
+        RenderDebugInfo();
+
+        tracker_frame_profile[3] = clock();
+
     }
 
     if (sp_pck_in == nullptr && 
@@ -686,15 +703,28 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
 
     // Debug & dashboard rendering
     dashboardUpdate();
-
-    cv::Rect2f grid_sector = dashboard.getGridSector();
-    dashboard.addCamFrameZoomed(grid_sector);      // Copy frame into the dashboard
+    
+    tracker_frame_profile[4] = clock();
 
     dashboard.instr_prims.clear();
 
     perf_mon.Render(dashboard.instr_prims);
 
+    tracker_frame_profile[5] = clock();
+
     dashboard.render();
+    
+    tracker_frame_profile[6] = clock();
+
+    //g_info("tracker profile: Total: %-5d, Algo %-5d, CamAdd %-5d, RenderDbg %-5d, DashUpdate %-5d, RenderMon %-5d, Render Dash%-5d",
+    //        tracker_frame_profile[6] - tracker_frame_profile[0],
+    //        tracker_frame_profile[1] - tracker_frame_profile[0],
+    //        tracker_frame_profile[2] - tracker_frame_profile[1],
+    //        tracker_frame_profile[3] - tracker_frame_profile[2],
+    //        tracker_frame_profile[4] - tracker_frame_profile[3],
+    //        tracker_frame_profile[5] - tracker_frame_profile[4],
+    //        tracker_frame_profile[6] - tracker_frame_profile[5]);
+
 }
 
 void TFlowTracker::targetSelection()
@@ -979,9 +1009,18 @@ void TFlowTracker::onRewind()
     CleanUp();
 }
 
-int TFlowTracker::onConfig(const json11::Json& j_in_params, json11::Json::object& j_out_params)
+int TFlowTracker::onConfig(json11::Json::object& j_out_params,
+    TFlowAlgo::tflow_cfg_algo *rw_cfg)
 {
-    std::string del_me = j_in_params.dump();
+
+    // TFlow should NOT write to it's config randomly.
+    // Only callbacks from TFlowCtrl allowed for config writing
+
+    // this->cfg ==> Read only local pointer
+    // rw_cfg    ==> Read/Write pointer from TFlowCtrl
+
+    TFlowTrackerCfg::cfg_tracker* rw_trck_cfg = 
+        (TFlowTrackerCfg::cfg_tracker*)rw_cfg->tflow_algo.v.ref;
 
     // TFlowCtrl
     if (cfg->servo_pitch.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
@@ -990,25 +1029,24 @@ int TFlowTracker::onConfig(const json11::Json& j_in_params, json11::Json::object
         servo_pitch.onConfig();
     }
 
+    //// Is the new file name exist ?
+    //if (j_in_params["reset"].is_number()) {
 
-    // Is the new file name exist ?
-    if (j_in_params["reset"].is_number()) {
+    //    int reset_act = j_in_params["reset"].int_value();
+    //    if (reset_act) {
+    //        onRewind();
+    //        force_redraw = 1;
+    //    }
+    //}
 
-        int reset_act = j_in_params["reset"].int_value();
-        if (reset_act) {
-            onRewind();
-            force_redraw = 1;
-        }
-    }
+    //const Json j_grid = j_in_params["grid"];
+    //if (j_grid.is_string()) {
+    //    if (dashboard.onConfigGrid(j_grid.string_value())) {
+    //        j_out_params.emplace("error", std::string("Bad grid format"));
+    //    }
+    //    force_redraw = 1;
 
-    const Json j_grid = j_in_params["grid"];
-    if (j_grid.is_string()) {
-        if (dashboard.onConfigGrid(j_grid.string_value())) {
-            j_out_params.emplace("error", std::string("Bad grid format"));
-        }
-        force_redraw = 1;
-
-    }
+    //}
 
     return 0;
 }
@@ -1127,11 +1165,9 @@ void TFlowTracker::renderGrid(vector<draw::Prim>& prims)
 
 }
 
-void TFlowTracker::RenderDebugInfo(Mat& frame)
+void TFlowTracker::RenderDebugInfo()
 {
     std::vector<draw::Prim> prims;
-
-    if (frame.empty()) return;
 
     TFlowFeature::RenderDbg feat_cfg = (TFlowFeature::RenderDbg) 
         ((int)TFlowFeature::RenderDbg::NEW          |
@@ -1154,16 +1190,17 @@ void TFlowTracker::RenderDebugInfo(Mat& frame)
         for (auto& p_feat : features) p_feat.second.RenderFeature(prims, feat_cfg);
     }
 
-
     gftt_preview.RenderGFTTPreview(prims);
 
     renderPitchHold(prims);
 
     renderPreviewCursor(prims);
 
-    renderGrid(prims);
+    // renderGrid(prims);
 
-    draw::render(dashboard.frameCamY, dashboard.frameCamUV, prims);
+    if (!dashboard.frameCamY.empty()) {
+        draw::render(dashboard.frameCamY, dashboard.frameCamUV, prims);
+    }
 
 }
 

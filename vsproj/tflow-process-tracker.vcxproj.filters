@@ -13,6 +13,15 @@
     <Filter Include="Shared\Ctrl">
       <UniqueIdentifier>{bdb2b969-b0fc-4cb4-849e-a9f747b6ae80}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Streamer-UDP">
+      <UniqueIdentifier>{2ef07f43-42e9-4f22-a421-871f12887990}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Streamer-WS">
+      <UniqueIdentifier>{b2a632ec-77cb-48df-925a-d53c68428af0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Encoder-V4L2">
+      <UniqueIdentifier>{0f10601b-72de-414d-8cbe-0042d11b630d}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\tracker\tflow-trck.cpp">
@@ -46,7 +55,6 @@
     <ClCompile Include="..\tflow-player.cpp" />
     <ClCompile Include="..\tflow-process.cpp" />
     <ClCompile Include="..\tflow-render.cpp" />
-    <ClCompile Include="..\tflow-streamer.cpp" />
     <ClCompile Include="..\tflow-tracelog.cpp" />
     <ClCompile Include="..\tflow-ctrl-process.cpp" />
     <ClCompile Include="..\main.cpp" />
@@ -55,6 +63,20 @@
     </ClCompile>
     <ClCompile Include="..\tflow-btc.cpp" />
     <ClCompile Include="..\tflow-pwm.cpp" />
+    <ClCompile Include="..\mongoose.c" />
+    <ClCompile Include="..\tflow-fifo-streamer.cpp" />
+    <ClCompile Include="..\streamer-ws\tflow-ws-vstreamer.cpp">
+      <Filter>Streamer-WS</Filter>
+    </ClCompile>
+    <ClCompile Include="..\encoder-v4l2\tflow-v4l2enc.cpp">
+      <Filter>Encoder-V4L2</Filter>
+    </ClCompile>
+    <ClCompile Include="..\streamer-udp\tflow-udp-vstreamer.cpp">
+      <Filter>Streamer-UDP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\streamer-udp\tflow-udp-vstreamer-if.cpp">
+      <Filter>Streamer-UDP</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\tracker\tflow-trck.hpp">
@@ -112,6 +134,26 @@
     <ClInclude Include="..\tflow-btc.hpp" />
     <ClInclude Include="..\tflow-ctrl-process-ui.hpp" />
     <ClInclude Include="..\tflow-pwm.hpp" />
+    <ClInclude Include="..\mongoose.h" />
+    <ClInclude Include="..\tflow-fifo-streamer.hpp" />
+    <ClInclude Include="..\streamer-ws\tflow-ws-vstreamer.hpp">
+      <Filter>Streamer-WS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\streamer-ws\tflow-ws-vstreamer-cfg.hpp">
+      <Filter>Streamer-WS</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder-v4l2\tflow-v4l2enc.hpp">
+      <Filter>Encoder-V4L2</Filter>
+    </ClInclude>
+    <ClInclude Include="..\encoder-v4l2\tflow-v4l2enc-cfg.hpp">
+      <Filter>Encoder-V4L2</Filter>
+    </ClInclude>
+    <ClInclude Include="..\streamer-udp\tflow-udp-vstreamer.hpp">
+      <Filter>Streamer-UDP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\streamer-udp\tflow-udp-vstreamer-cfg.hpp">
+      <Filter>Streamer-UDP</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\.gitignore" />

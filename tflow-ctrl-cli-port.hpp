@@ -10,7 +10,7 @@ class TFlowCtrlSrv;
 class TFlowCtrlCliPort {
 
 public:
-    TFlowCtrlCliPort(MainContextPtr context, TFlowCtrlSrv& srv, int fd);
+    TFlowCtrlCliPort(MainContextPtr context, TFlowCtrlSrv &srv, int fd);
     ~TFlowCtrlCliPort();
 
     std::string signature;
@@ -25,14 +25,14 @@ private:
 
     int sck_fd;
 
-    gboolean onMsg(Glib::IOCondition io_cond);
-    int onMsgRcv();
+    gboolean onUDPMsg(Glib::IOCondition io_cond);
+    int onUDPMsgRcv();
     int onMsgSign(const json11::Json& j_params);
 
-    int sendResp(const char* cmd, int err, const json11::Json::object& j_resp_params);
+    int sendResp(const char *cmd, int err, const json11::Json::object& j_resp_params);
     IOSourcePtr sck_src;
 
-    size_t in_msg_size;
-    char* in_msg;
+    size_t in_udp_msg_size;
+    char* in_udp_msg;
 
 };

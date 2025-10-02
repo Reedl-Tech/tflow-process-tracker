@@ -9,9 +9,6 @@
 
 #include "tflow-trck-imu.hpp"
 
-using namespace cv;
-using namespace std;
-
 namespace draw = cv::gapi::wip::draw;
 
 class Velocity {
@@ -78,7 +75,7 @@ public:
     TFlowFeature(cv::Point2f pos, int qlty_scores, int id);
     int Update(cv::Point2f pos, unsigned char status);
 
-    static int CalcContrast(const Mat& frame);
+    static int CalcContrast(const cv::Mat& frame);
     static int CalcQuality(double gftt_qlty, int contrast);
 
     void RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, TFlowFeature::RenderDbg cfg);

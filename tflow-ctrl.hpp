@@ -6,7 +6,7 @@
 #include <functional>
 
 #include <json11.hpp>
- 
+
 #if _WIN32
 #define ARRAY_INIT_IDX(_idx)
 #else
@@ -68,42 +68,6 @@ public:
             struct uictrl_slider   slider;
         };
     };
-
-    // Default GROUP UI defintion
-    struct uictrl ui_group_def = {
-        .type = TFlowCtrlUI::UICTRL_TYPE::GROUP,
-    };
-
-
-    // Default CUSTOM UI defintion
-    struct uictrl ui_custom_def = {
-        .type = TFlowCtrlUI::UICTRL_TYPE::CUSTOM,
-    };
-
-    // Default EDIT UI defintion
-    struct uictrl ui_edit_def = {
-        .type = TFlowCtrlUI::UICTRL_TYPE::EDIT,
-    };
-
-    struct uictrl ui_ll_edit_def = {
-        .label_pos = 1,
-        .type = TFlowCtrlUI::UICTRL_TYPE::EDIT,
-    };
-
-    // Default BUTTON UI definition
-    struct uictrl ui_butt_def = {
-        .type = TFlowCtrlUI::UICTRL_TYPE::BUTTON,
-    };
-
-    // Default SWITCH UI definition (aka checkbox)
-    struct uictrl ui_switch_def = {
-        .type = TFlowCtrlUI::UICTRL_TYPE::SWITCH,
-    };
-
-    struct uictrl ui_ll_switch_def = {
-        .label_pos = 1,
-        .type = TFlowCtrlUI::UICTRL_TYPE::SWITCH,
-    };
 };
 
 class TFlowCtrl : public TFlowCtrlUI {
@@ -159,8 +123,9 @@ public:
 
     static void _getSignResponse(const tflow_cmd_t* cmd_p, json11::Json::object& j_params); // obsolete
 
-    static int setCmdFields(tflow_cmd_field_t* cmd_field, const json11::Json& in_params, int &was_changed);
+    static void setFieldChanged(tflow_cmd_field_t* in_cmd_fields);
     static void clrFieldChanged(tflow_cmd_field_t* in_cmd_fields);
+    static int setCmdFields(tflow_cmd_field_t* cmd_field, const json11::Json& in_params, int &was_changed);
     static void dumpFieldFlags(tflow_cmd_field_t* in_cmd_fields, std::string &indent);
     
     void collectRequestedChangesTop(tflow_cmd_field_t* in_cmd_fields, const json11::Json& j_in_params, json11::Json::object& j_out_params);
@@ -168,6 +133,7 @@ public:
 
     static void getCmdInfo(const tflow_cmd_field_t* fields, json11::Json::object& j_cmd_info);      // AV: Bad naming. Not info but rather value?
     static void setFieldStr(tflow_cmd_field_t *str_field, const char* value);
+    static int getDropDownIdx(const tflow_cmd_field_t *cmd_fld);
     
     static void addCtrl        (const tflow_cmd_field_t *cmd_fld, json11::Json::array &j_ctrl_out_arr);
     static void addCtrlEdit    (const tflow_cmd_field_t *cmd_fld, const char *ui_label, const char *val, json11::Json::object &j_out_params);
@@ -185,3 +151,13 @@ private:
 
     static int setField(tflow_cmd_field_t* cmd_field, const json11::Json& in_param);
 };
+
+extern struct TFlowCtrl::uictrl ui_group_def;
+extern struct TFlowCtrl::uictrl ui_custom_def;
+extern struct TFlowCtrl::uictrl ui_edit_def;
+extern struct TFlowCtrl::uictrl ui_ll_edit_def;
+extern struct TFlowCtrl::uictrl ui_butt_def;
+extern struct TFlowCtrl::uictrl ui_switch_def;
+extern struct TFlowCtrl::uictrl ui_ll_switch_def;
+extern struct TFlowCtrl::uictrl ui_switch_def;
+

@@ -1,13 +1,15 @@
 #include "tflow-build-cfg.hpp"
 
-#include <string>
 
 #if _WIN32
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <sysinfoapi.h>
 #include <timezoneapi.h>
 #include <profileapi.h>
 #endif
+
+#include <string>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/gapi.hpp>
@@ -17,8 +19,11 @@
 #include "tflow-render.hpp"
 #include "tflow-perfmon.hpp"
 
+
 using namespace std;
 using namespace cv;
+
+TFlowPerfMonCfg tflow_perfmon_cfg;
 
 #if _WIN32
 LARGE_INTEGER
@@ -105,7 +110,7 @@ double TFlowPerfMon::diff_timespec_msec(
     return d_tp.tv_sec * 1000 + (double)d_tp.tv_nsec / (1000 * 1000);
 }
 
-TFlowPerfMon::TFlowPerfMon(const struct cfg_tflow_perfmon* _cfg)
+TFlowPerfMon::TFlowPerfMon(const TFlowPerfMonCfg::cfg_tflow_perfmon* _cfg)
 {
     cfg = _cfg;
     lbl_ancor = Point2i(_cfg->lbl_x.v.num, _cfg->lbl_y.v.num);
@@ -120,6 +125,8 @@ void TFlowPerfMon::tickStart()
     clock_gettime(CLOCK_MONOTONIC, &wall_time_tp);
     double dt_wall_time_ms = diff_timespec_msec(&wall_time_tp, &wall_time_prev_tp);
 
+    wall_time_prev_tp = wall_time_tp;
+    
     avg_fps << (1000 / dt_wall_time_ms);
 }
 
@@ -130,7 +137,7 @@ void TFlowPerfMon::tickStop()
     avg_load << load_sample_ms;
 }
 
-void TFlowPerfMon::Render(vector<draw::Prim>& prims)
+void TFlowPerfMon::Render(vector<cv::gapi::wip::draw::Prim>& prims)
 {
     char txt_load_fps[32] = "";
     char txt_load_msec[32] = "";
@@ -147,28 +154,27 @@ void TFlowPerfMon::Render(vector<draw::Prim>& prims)
 
     int cfg_render_dbg = cfg->dbg_render.v.num;
 
-    if (cfg_render_dbg == 0) {
+    if (cfg_render_dbg == TFlowPerfMonUI::PERFMON_SHOW::DISABLED) {
         return;
     }
-    else if (cfg_render_dbg & (int)RenderDbg::FPS) {
+    else if (cfg_render_dbg == TFlowPerfMonUI::PERFMON_SHOW::FPS) {
         snprintf(txt_load_fps, sizeof(txt_load_fps), "F%5.1f", load_fps);
         label.append(txt_load_fps);
     }
-        else if (cfg_render_dbg & (int)RenderDbg::LOAD_MSEC) {
-            snprintf(txt_load_msec, sizeof(txt_load_msec), "%5.1fms", load_msec);
-            label.append(txt_load_msec);
+    else if (cfg_render_dbg == TFlowPerfMonUI::PERFMON_SHOW::LOAD_MSEC) {
+        snprintf(txt_load_msec, sizeof(txt_load_msec), "%5.1fms", load_msec);
+        label.append(txt_load_msec);
     }
-        else if (cfg_render_dbg & (int)RenderDbg::LOAD_PERC) {
-            snprintf(txt_load_perc, sizeof(txt_load_perc), " L%5.1f%%", load_perc);
-            label.append(txt_load_perc);
+    else if (cfg_render_dbg == TFlowPerfMonUI::PERFMON_SHOW::LOAD_PERC) {
+        snprintf(txt_load_perc, sizeof(txt_load_perc), " L%5.1f%%", load_perc);
+        label.append(txt_load_perc);
     }
 
     if (label.empty()) return;
 
-    prims.emplace_back(draw::Text{ label, lbl_ancor, 
+    prims.emplace_back(cv::gapi::wip::draw::Text{ label, lbl_ancor, 
         cv::FONT_HERSHEY_PLAIN, 1, blue });
-
-    prims.emplace_back(draw::Text{ label, lbl_ancor + Point2i(1,1), 
+    prims.emplace_back(cv::gapi::wip::draw::Text{ label, lbl_ancor + Point2i(1,1), 
         cv::FONT_HERSHEY_PLAIN, 1, white });
 
 }

@@ -1,4 +1,9 @@
 #pragma once 
+
+#if _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 #include <string>
 #include <cstdint>
 #include <vector>
@@ -10,6 +15,8 @@
 #include "tflow-ctrl-process-ui.hpp"
 
 #include "tflow-algo.hpp"
+#include "streamer-udp/tflow-udp-vstreamer-cfg.hpp"
+#include "streamer-ws/tflow-ws-vstreamer-cfg.hpp"
 
 // Structure that link TFlowCtrl with user specific algorithm from TFlowProcess
 extern TFlowAlgo::tflow_cfg_algo cmd_flds_cfg_algo;
@@ -27,6 +34,8 @@ public:
     void InitServer();
 
     int state_get();
+
+    TFlowEncUI enc_ui;
 
     struct tflow_cmd_flds_sign {
         tflow_cmd_field_t   eomsg;
@@ -63,15 +72,19 @@ public:
     struct tflow_cmd_flds_config {
         tflow_cmd_field_t   state;
         tflow_cmd_field_t   opencl;
-        tflow_cmd_field_t   video_src;      
+        tflow_cmd_field_t   video_src;
+        tflow_cmd_field_t   udp_streamer;
+        tflow_cmd_field_t   ws_streamer;
 //        tflow_cmd_field_t   player;
         tflow_cmd_field_t   algo;
         tflow_cmd_field_t   eomsg;
     } cmd_flds_config = {
-        .state        = { "state",        CFT_NUM, 0, {.num =       0} , &ui_switch_def},
-        .opencl       = { "opencl",       CFT_NUM, 0, {.num =       1} , &ui_switch_def},         // 0 - disabled, 1 - enabled, 2 - enable with info
-        .video_src    = { "video_src",    CFT_STR, 0, {.str = nullptr} , &ui_custom_video_src},   // <"live", "playback", "disabled" >
-        .algo         = { "algo",         CFT_REF_SKIP, 0, {.ref = &cmd_flds_cfg_algo.head }, &ui_group_def },
+        .state        = { "state",        CFT_NUM,      0, {.num =       0},  &ui_switch_def},
+        .opencl       = { "opencl",       CFT_NUM,      0, {.num =       2} },  // 0 - disabled, 1 - enabled, 2 - enable with info. AV: Excluded from UI as no reason so far to disable OpenCL
+        .video_src    = { "video_src",    CFT_STR,      0, {.str = nullptr},  &ui_custom_video_src},   // <"live", "playback", "disabled" >
+        .udp_streamer = { "udp_streamer", CFT_REF,      0, {.ref = &tflow_udp_streamer_cfg.cmd_flds_cfg_udp_streamer.head}, &ui_group_def},   
+        .ws_streamer  = { "ws_streamer",  CFT_REF,      0, {.ref = &tflow_ws_streamer_cfg.cmd_flds_cfg_ws_streamer.head}, &ui_group_def},   
+        .algo         = { "algo",         CFT_REF_SKIP, 0, {.ref = &cmd_flds_cfg_algo.head },  &ui_group_def },
         TFLOW_CMD_EOMSG
     };
 
@@ -88,7 +101,7 @@ public:
     int cmd_cb_player_dir    (const json11::Json& j_in_params, json11::Json::object& j_out_params);
     int cmd_cb_set_as_def    (const json11::Json& j_in_params, json11::Json::object& j_out_params);
 
-#define TFLOW_PROCESS_RPC_CMD_VERSION     0     
+#define TFLOW_PROCESS_RPC_CMD_VERSION     0
 #define TFLOW_PROCESS_RPC_CMD_CONTROLS    1
 #define TFLOW_PROCESS_RPC_CMD_CONFIG      2
 #define TFLOW_PROCESS_RPC_CMD_PLAYER      3
@@ -109,6 +122,7 @@ public:
     TFlowCtrlSrvProcess ctrl_srv;
 
     void getSignResponse(json11::Json::object& j_params);
+    void getUISignResponse(json11::Json::object& j_params);
 
 private:
 

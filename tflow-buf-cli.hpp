@@ -9,6 +9,7 @@
 
 #include <glib-unix.h>
 
+#include "tflow-common.hpp"
 #include "tflow-buf.hpp"
 #include "tflow-buf-pck.hpp"
 
@@ -29,8 +30,8 @@ public:
     void onIdle(struct timespec now_ts);
 
     int Connect();
-    void Disconnect();
-    bool onMsg(Glib::IOCondition);
+    void CloseUDP();
+    bool onUDPMsg(Glib::IOCondition);
 
     int sendMsg(TFlowBufPck::pck &msg, int msg_id, int msg_custom_len);
     int sendSignature();

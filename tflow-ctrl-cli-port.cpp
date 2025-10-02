@@ -19,25 +19,25 @@ TFlowCtrlCliPort::~TFlowCtrlCliPort()
         sck_src.reset();
     }
 
-    if (in_msg) {
-        g_free(in_msg);
-        in_msg = nullptr;
+    if (in_udp_msg) {
+        g_free(in_udp_msg);
+        in_udp_msg = nullptr;
     }
 
 }
 
-TFlowCtrlCliPort::TFlowCtrlCliPort(MainContextPtr context, TFlowCtrlSrv &_srv, int fd) :
+TFlowCtrlCliPort::TFlowCtrlCliPort (MainContextPtr context, TFlowCtrlSrv &_srv, int fd) :
     srv(_srv)
 {
     sck_fd = fd;
 
-    in_msg_size = 1024 * 1024;
-    in_msg = (char*)g_malloc(in_msg_size);
+    in_udp_msg_size = 1024 * 1024;
+    in_udp_msg = (char*)g_malloc(in_udp_msg_size);
 
     clock_gettime(CLOCK_MONOTONIC, &last_send_ts);
 
     sck_src = Glib::IOSource::create(sck_fd, (Glib::IOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP));
-    sck_src->connect(sigc::mem_fun(*this, &TFlowCtrlCliPort::onMsg));
+    sck_src->connect(sigc::mem_fun(*this, &TFlowCtrlCliPort::onUDPMsg));
     sck_src->attach(context);
 }
 
@@ -45,7 +45,7 @@ int TFlowCtrlCliPort::sendResp(const char *cmd, int resp_err, const Json::object
 {
     ssize_t res;
     Json j_resp;
-    
+
     if (resp_err) {
         static const std::string err_unknown("unknown");
         const string *err_msg = &err_unknown;
@@ -107,7 +107,7 @@ int TFlowCtrlCliPort::onMsgSign(const Json& j_params)
 }
 
 
-gboolean TFlowCtrlCliPort::onMsg(Glib::IOCondition io_cond)
+gboolean TFlowCtrlCliPort::onUDPMsg(Glib::IOCondition io_cond)
 {
     if (io_cond == Glib::IOCondition::IO_ERR) {
         assert(0);  // Implement something or remove condition from the source
@@ -117,7 +117,7 @@ gboolean TFlowCtrlCliPort::onMsg(Glib::IOCondition io_cond)
         assert(0);  // Implement something or remove condition from the source
     }
 
-    int rc = onMsgRcv();
+    int rc = onUDPMsgRcv();
     if (rc) {
         // Let the Server kill us :/
         // No more access to "this->" upon return
@@ -131,9 +131,9 @@ gboolean TFlowCtrlCliPort::onMsg(Glib::IOCondition io_cond)
     return G_SOURCE_CONTINUE;
 }
 
-int TFlowCtrlCliPort::onMsgRcv()
+int TFlowCtrlCliPort::onUDPMsgRcv()
 {
-    int res = recv(sck_fd, in_msg, in_msg_size - 1, 0); //MSG_DONTWAIT 
+    int res = recv(sck_fd, in_udp_msg, in_udp_msg_size - 1, 0); //MSG_DONTWAIT 
 
     if (res <= 0) {
         int err = errno;
@@ -147,10 +147,10 @@ int TFlowCtrlCliPort::onMsgRcv()
         }
         return -1;
     }
-    in_msg[res] = 0;
+    in_udp_msg[res] = 0;
 
     std::string j_err;
-    const Json j_in_msg = Json::parse(in_msg, j_err);
+    const Json j_in_msg = Json::parse(in_udp_msg, j_err);
 
     if (j_in_msg.is_null()) {
         g_warning("TFlowCtrlCliPort: [%s] Can't parse input message - %s",
@@ -172,6 +172,9 @@ int TFlowCtrlCliPort::onMsgRcv()
         srv.onTFlowCtrlMsg(in_cmd, j_in_params, j_resp_params, resp_err);
 #if CODE_BROWSE
         TFlowCtrlSrvCapture::onTFlowCtrlMsg();
+            TFlowCtrlCapture::cmd_cb_config();
+            TFlowCtrlCapture::cmd_cb_controls();
+
         TFlowCtrlSrvProcess::onTFlowCtrlMsg();
             TFlowCtrlProcess::cmd_cb_cfg_player();      // for in_cmd == "player"
                 tflow_cmd_t ctrl_process_rpc_cmds;
@@ -180,7 +183,7 @@ int TFlowCtrlCliPort::onMsgRcv()
 #endif
     }
 
-    return sendResp(in_cmd.c_str(), resp_err, j_resp_params );
-    
+    return sendResp(in_cmd.c_str(), resp_err, j_resp_params);
+
 }
 

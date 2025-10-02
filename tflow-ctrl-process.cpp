@@ -30,8 +30,8 @@ static const std::string process_raw_cfg_default{ R"(
     }
 )" };
 
-#if !(OFFLINE_PROCESS)
-TFlowCtrlSrvProcess ::TFlowCtrlSrvProcess(TFlowCtrlProcess& _ctrl_process, MainContextPtr context) :
+
+TFlowCtrlSrvProcess::TFlowCtrlSrvProcess(TFlowCtrlProcess& _ctrl_process, MainContextPtr context) :
     TFlowCtrlSrv(
         string("Process"),
         string("_com.reedl.tflow.ctrl-server-process"),
@@ -93,13 +93,9 @@ void TFlowCtrlSrvProcess::onTFlowCtrlMsg(const string& cmd, const Json& j_in_par
 void TFlowCtrlSrvProcess::onSignature(Json::object& j_out_params, int& err)
 {
     err = 0;
-    // TODO: Rework this getSignResponse call - now it is supposed for 
-    //       WEB UI, but not for internal communication. I.e. local modules
-    //       don't care about UI control.
     ctrl_process.getSignResponse(j_out_params);
     return;
 }
-#endif
 
 TFlowCtrlProcess::~TFlowCtrlProcess()
 {
@@ -109,7 +105,7 @@ TFlowCtrlProcess::~TFlowCtrlProcess()
 TFlowCtrlProcess::TFlowCtrlProcess(TFlowProcess& _app, const std::string _cfg_fname) :
     app(_app),
     cfg_fname(_cfg_fname),
-    ctrl_srv(*this, _app.context)  // ??? pass Ctrl Commands to the server?
+    ctrl_srv(*this, _app.context)
 {
     parseConfig(ctrl_process_rpc_cmds, cfg_fname, process_raw_cfg_default);
     InitServer();
@@ -127,11 +123,9 @@ int TFlowCtrlProcess::state_get()
 /*********************************/
 /*** Application specific part ***/
 /*********************************/
-void TFlowCtrlProcess::getSignResponse(json11::Json::object &j_out_params)
+void TFlowCtrlProcess::getUISignResponse(json11::Json::object &j_out_params)
 {
-    j_out_params.emplace("state", "OK");
-    j_out_params.emplace("version", "v0");  // TODO: replace for version from git or signature hash or both?
-    j_out_params.emplace("config_id", config_id);  
+    getSignResponse(j_out_params);
 
     const tflow_cmd_t *cmd_config = &ctrl_process_rpc_cmds[TFLOW_PROCESS_RPC_CMD_CONFIG];
 
@@ -165,9 +159,16 @@ void TFlowCtrlProcess::getSignResponse(json11::Json::object &j_out_params)
     }
 #endif
 
-    Json test = Json(j_out_params);
-    std::string s_msg = test.dump();
-    g_critical("signature: %s", s_msg.c_str());
+    //Json test = Json(j_out_params);
+    //std::string s_msg = test.dump();
+    //g_critical("signature: %s", s_msg.c_str());
+}
+
+void TFlowCtrlProcess::getSignResponse(json11::Json::object &j_out_params)
+{
+    j_out_params.emplace("state", "OK");
+    j_out_params.emplace("version", "v0");  // TODO: replace for version from git or signature hash or both?
+    j_out_params.emplace("config_id", config_id);  
 }
 
 void TFlowCtrlProcess::collectCtrlsCustom(UICTRL_TYPE _custom_type,
@@ -175,56 +176,16 @@ void TFlowCtrlProcess::collectCtrlsCustom(UICTRL_TYPE _custom_type,
 {
     
     UICTRL_TYPE_CUSTOM custom_type = (UICTRL_TYPE_CUSTOM)_custom_type;
-    assert(custom_type > UICTRL_TYPE::CUSTOM);
+    assert(custom_type > (int)UICTRL_TYPE::CUSTOM);
 
     // Custom controls - array which contains predefined set of control objects
     if ( 0 == strcmp(cmd_fld->name, "name_of_custom_control") ) {
     }
-#if 0
-    else if ( custom_type == UICTRL_TYPE_CUSTOM::AAA) {
-        // Flip control - is a dual check box with specific icons
-        const cfg_v4l2_ctrls_flip *cmd_flip = (cfg_v4l2_ctrls_flip*)cmd_fld;
-
-        json11::Json::object j_flip_custom;
-
-        Json::array j_flip_arr; 
-        json11::Json::object j_vflip, j_hflip;
-        
-        j_vflip.emplace("name", std::string("vflip"));
-        j_vflip.emplace("value", cmd_flip->vflip.v.num );
-        j_flip_arr.emplace_back(j_vflip);
-
-        j_hflip.emplace("name", std::string("hflip"));
-        j_hflip.emplace("value", cmd_flip->hflip.v.num );
-        j_flip_arr.emplace_back(j_hflip);
-
-        j_flip_custom.emplace("type", "flip");
-        j_flip_custom.emplace("name", cmd_fld->name);
-        j_flip_custom.emplace("value", j_flip_arr);
-
-        j_out_ctrl_arr.emplace_back(j_flip_custom);
-    } 
-    else if ( custom_type == UICTRL_TYPE_CUSTOM::BBB) {
-    //else if ( 0 == strcmp(cmd_fld->name, "flyn_testpatt") ) {
-        json11::Json::object j_flyn_testpatt_custom;
-
-        // FLYN test pattern is custom only by logic on UI side all controls 
-        // are standard.
-        Json::array j_flyn_testpatt_arr; 
-        collectCtrls(cmd_fld + 1, j_flyn_testpatt_arr);  // +1 to skip header
-
-        j_flyn_testpatt_custom.emplace("type", "sw_dropdown");
-        j_flyn_testpatt_custom.emplace("name", cmd_fld->name);
-        j_flyn_testpatt_custom.emplace("value", j_flyn_testpatt_arr);
-
-        j_out_ctrl_arr.emplace_back(j_flyn_testpatt_custom);
-    }  
-#endif
     else {
         // Default custom non group
         // TODO: Implement new type - NAMED and move to TFlowCtrl
         //       NAMED - a standard type with a unique name recognized by UI,
-        //       it doesn't use Label, Ssize, etc.
+        //       it doesn't use Label, Size, etc.
         //       As an examle - "video_src". UI render it in a special manner.
         Json::object j_arr_entry;
         TFlowCtrl::uictrl *ui_ctrl = cmd_fld->ui_ctrl;
@@ -260,8 +221,8 @@ void TFlowCtrlProcess::collectCtrlsCustom(UICTRL_TYPE _custom_type,
         j_out_ctrl_arr.emplace_back(j_arr_entry);
     }
 
-}
 
+}
 
 int TFlowCtrlProcess::cmd_cb_version(const json11::Json& j_in_params, Json::object& j_out_params)
 {
@@ -278,7 +239,7 @@ int TFlowCtrlProcess::cmd_cb_ui_sign(const json11::Json& j_in_params, Json::obje
 {
     g_info("UI Sign command\n");
 
-    getSignResponse(j_out_params);
+    getUISignResponse(j_out_params);
 
     return 0;
 }
@@ -294,10 +255,11 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
     int rc = setCmdFields(flds, j_in_params, was_changed);
 
     if ( rc != 0 ) {
+        j_out_params.emplace("error", "Can't parse");
+        return rc;
         // TODO: Add notice or error to out_params in case of error.
         //       We can't just return from here, because some parameters
-        //       might be already changed and we don't have rollback functionality
-        //       So, finger cross and just continue...
+        //       might be already changed and we don't have rollback functionality.
     }
 
     //std::string indent("|");
@@ -308,9 +270,14 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
     }
 
     if (app.algo && cmd_flds_config.algo.flags & FIELD_FLAG::CHANGED) {
-        // Note: in/out params are not in use so far, but in theory, Algo may
-        // add some specific outputs and use original input Json object.
-        app.algo->onConfig(j_in_params, j_out_params);
+        // Note: Json out params is not in use so far, but in theory, Algo
+        // may add some specific outputs and use original input Json object.
+ 
+        // Note: Algo may not change it's configuration (cfg pointer is const), 
+        //       buy concept. Thus we will provide R/W pointer to let algo
+        //       applies validation on config changes (i.e. params min/max
+        //       limitation, etc.)
+        app.algo->onConfig(j_out_params, &cmd_flds_cfg_algo);
     }
 
     // Composes all required config params and clears changed flag.

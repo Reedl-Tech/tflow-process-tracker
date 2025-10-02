@@ -17,7 +17,7 @@
 
 TFlowBufCli::~TFlowBufCli()
 {
-    Disconnect();
+    CloseUDP();
 }
 
 int TFlowBufCli::onConsume(std::shared_ptr<TFlowBufPck> sp_pck)
@@ -62,7 +62,7 @@ int TFlowBufCli::onSrcFD(TFlowBufPck::pck_fd* msg, int cam_fd)
     return 0;
 }
 
-bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
+bool TFlowBufCli::onUDPMsg(Glib::IOCondition io_cond)
 {
     struct msghdr   msg;
     struct iovec    iov[1];
@@ -252,6 +252,14 @@ int TFlowBufCli::sendMsg(TFlowBufPck::pck &msg, int msg_id, int msg_custom_len =
         return -1;
     }
 
+    if (msg_id > TFlowBufPck::TFLOWBUF_MSG_CUSTOM_) {
+        static int presc = 0;
+        if ( (presc++ & 0xFF) == 0 ) {
+            g_warning("TFlowBufCli: Msg sent [%s] (%d) #%d", comment,
+                msg.hdr.id, msg.hdr.seq);
+        }
+    }
+
     clock_gettime(CLOCK_MONOTONIC, &last_send_ts);
 
     return 0;
@@ -292,7 +300,7 @@ int TFlowBufCli::sendSignature()
     return 0;
 }
 
-void TFlowBufCli::Disconnect()
+void TFlowBufCli::CloseUDP()
 {
     if (sck_fd != -1) {
         close(sck_fd);
@@ -300,9 +308,9 @@ void TFlowBufCli::Disconnect()
     }
 
     if (sck_src) {
-            sck_src->destroy();
-            sck_src.reset();
-        }
+        sck_src->destroy();
+        sck_src.reset();
+    }
     
     tflow_bufs.clear();
     if (cam_fd != -1) {
@@ -348,7 +356,7 @@ int TFlowBufCli::Connect()
     g_warning("---TFlowBufCli: Connected to the server %s", srv_name.c_str());
 
     sck_src = Glib::IOSource::create(sck_fd, (Glib::IOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP));
-    sck_src->connect(sigc::mem_fun(*this, &TFlowBufCli::onMsg));
+    sck_src->connect(sigc::mem_fun(*this, &TFlowBufCli::onUDPMsg));
     sck_src->attach(context);
 
     return 0;
@@ -419,7 +427,7 @@ void TFlowBufCli::onIdle(struct timespec now_ts)
         if (app_onSrcGone) app_onSrcGone();
         if (app_onDisconnect) app_onDisconnect();
 
-        Disconnect();
+        CloseUDP();
 
         // Try to reconnect later
         sck_state_flag.v = Flag::CLR;

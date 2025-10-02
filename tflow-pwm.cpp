@@ -84,7 +84,7 @@ TFlowPWM::TFlowPWM(const struct cfg_tflow_servo_cntrl* _cfg)
         std::string(pwm_chip) + std::string("pwm") + std::string(cfg->channel.v.c_str) + 
         std::string("/period");
     fd_period = open(pwm_period.c_str(), O_WRONLY);
-    val_str_len = snprintf(val_str, sizeof(val_str), "%lu", cfg->period.v.num);
+    val_str_len = snprintf(val_str, sizeof(val_str), "%d", cfg->period.v.num);
     wrttn = write(fd_period, val_str, val_str_len);
 
     std::string pwm_dutycycle = 
@@ -93,7 +93,7 @@ TFlowPWM::TFlowPWM(const struct cfg_tflow_servo_cntrl* _cfg)
     fd_duty_cycle = open(pwm_dutycycle.c_str(), O_WRONLY);
 
     duty_cycle = degr2dutecycle(0); // Always start from pos 0? 
-    val_str_len = snprintf(val_str, sizeof(val_str), "%lu", duty_cycle);
+    val_str_len = snprintf(val_str, sizeof(val_str), "%d", duty_cycle);
     wrttn = write(fd_duty_cycle, val_str, val_str_len);
 
     std::string pwm_enable = 
@@ -216,6 +216,6 @@ void TFlowPWM::move_update()                                             // Upda
     char val_str[16];
     size_t val_str_len;
 
-    val_str_len = snprintf(val_str, sizeof(val_str), "%lu", duty_cycle);
+    val_str_len = snprintf(val_str, sizeof(val_str), "%d", duty_cycle);
     write(fd_duty_cycle, val_str, val_str_len);
 }

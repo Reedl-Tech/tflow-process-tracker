@@ -20,6 +20,41 @@
 using namespace json11;
 using namespace std;
 
+// Default GROUP UI defintion
+struct TFlowCtrl::uictrl ui_group_def = {
+    .type = TFlowCtrlUI::UICTRL_TYPE::GROUP,
+};
+
+// Default CUSTOM UI defintion
+struct TFlowCtrl::uictrl ui_custom_def = {
+    .type = TFlowCtrlUI::UICTRL_TYPE::CUSTOM,
+};
+
+// Default EDIT UI defintion
+struct TFlowCtrl::uictrl ui_edit_def = {
+    .type = TFlowCtrlUI::UICTRL_TYPE::EDIT,
+};
+
+struct TFlowCtrl::uictrl ui_ll_edit_def = {
+    .label_pos = 1,
+    .type = TFlowCtrlUI::UICTRL_TYPE::EDIT,
+};
+
+// Default BUTTON UI definition
+struct TFlowCtrl::uictrl ui_butt_def = {
+    .type = TFlowCtrlUI::UICTRL_TYPE::BUTTON,
+};
+
+// Default SWITCH UI definition (aka checkbox)
+struct TFlowCtrl::uictrl ui_switch_def = {
+    .type = TFlowCtrlUI::UICTRL_TYPE::SWITCH,
+};
+
+struct TFlowCtrl::uictrl ui_ll_switch_def = {
+    .label_pos = 1,
+    .type = TFlowCtrlUI::UICTRL_TYPE::SWITCH,
+};
+
 TFlowCtrl::TFlowCtrl()
 {
     config_id = 0;
@@ -177,8 +212,7 @@ void TFlowCtrl::addCtrlDropdown(const tflow_cmd_field_t *cmd_fld, const char *la
     // list entries.
 
     if ( cmd_fld->type == CFT_NUM ) {
-        char val_str [ 16 ];
-        snprintf(val_str, sizeof(val_str) - 1, "%d", cmd_fld->v.num);
+        const char *val_str = cmd_fld->ui_ctrl->dropdown.val[cmd_fld->v.num];
         j_dropdown_arr.emplace_back(val_str);
     }
     else if ( cmd_fld->type == CFT_DBL ) {
@@ -372,15 +406,33 @@ void  TFlowCtrl::collectRequestedChanges(tflow_cmd_field_t* in_cmd_fields,
 
             switch (cmd_field->type) {
             case CFT_NUM:
-                j_params.emplace(cmd_field->name, cmd_field->v.num);
+                // For Numbered Dropdown items put string value instead of number
+                if (cmd_field->ui_ctrl &&
+                    cmd_field->ui_ctrl->type == TFlowCtrlUI::DROPDOWN &&
+                    cmd_field->ui_ctrl->dropdown.val ) {
+
+                    // Dropdown down list doesn't have length so, travers incremently
+                    const char **dd_v = cmd_field->ui_ctrl->dropdown.val;
+                    for ( int i = 0; i <= cmd_field->v.num ; i++ ) {
+                        if (dd_v[i] == nullptr) break;
+                        if ( i == cmd_field->v.num ) {
+                            j_params.emplace(cmd_field->name, dd_v[i]);
+                            break;
+                        }
+                    }
+                }
+                else {
+                    j_params.emplace(cmd_field->name, cmd_field->v.num);
+                }
                 break;
-            case CFT_VNUM:
-            {
+
+            case CFT_VNUM: {
                 Json::array j_val_arr;
                 for (int v : *cmd_field->v.vnum) {
                     j_val_arr.emplace_back(v);
                 }
                 j_params.emplace(cmd_field->name, j_val_arr);
+                break;
             }
             case CFT_DBL:
                 j_params.emplace(cmd_field->name, cmd_field->v.dbl);
@@ -429,14 +481,44 @@ void  TFlowCtrl::dumpFieldFlags(tflow_cmd_field_t* in_cmd_fields, std::string &i
     }
 }
 
+#endif
+
+void  TFlowCtrl::setFieldChanged(tflow_cmd_field_t* in_cmd_fields)
+{
+    // Loops over all fields recursivly and sets "changed" flag.
+    // Is used during initial config parsing only.
+    // Set all fields except BUTTONs as changed to trigger module's
+    // internal parameters verification.
+    
+    tflow_cmd_field_t* cmd_field = in_cmd_fields;
+
+    while (cmd_field->type != CFT_LAST) {
+
+        if (cmd_field->ui_ctrl && 
+            cmd_field->ui_ctrl->type == UICTRL_TYPE::BUTTON) {
+            cmd_field++;
+            continue;
+        }
+
+        if (cmd_field->type != CFT_REF_SKIP) {
+            cmd_field->flags |= FIELD_FLAG::CHANGED;
+        }
+
+        if (cmd_field->type == CFT_REF || cmd_field->type == CFT_REF_SKIP) {
+            tflow_cmd_field_t* cmd_sub_fields = cmd_field->v.ref + 1;
+            if (cmd_sub_fields) {
+                setFieldChanged(cmd_sub_fields);
+            }
+        }
+        cmd_field++;
+    }
+}
+
 void  TFlowCtrl::clrFieldChanged(tflow_cmd_field_t* in_cmd_fields)
 {
-    // TODO: Is used during initial config parsing only.
-    //       Probably can be combined with collectChangesTop which clears
-    //       is_changed flag too, but it is too excesive due to Json object
-    //       collecting.
+    // Loops over all fields recursivly and clears "changed" flag.
+    // Is used upon Algo creation only.
     
-    // Loop over all fields recursivly and clear "is_changed" flag
     tflow_cmd_field_t* cmd_field = in_cmd_fields;
 
     while (cmd_field->type != CFT_LAST) {
@@ -452,7 +534,6 @@ void  TFlowCtrl::clrFieldChanged(tflow_cmd_field_t* in_cmd_fields)
         cmd_field++;
     }
 }
-#endif
 
 int TFlowCtrl::setCmdFields(tflow_cmd_field_t* in_cmd_fields, const Json& j_in_params, int &was_changed)
 {
@@ -461,7 +542,7 @@ int TFlowCtrl::setCmdFields(tflow_cmd_field_t* in_cmd_fields, const Json& j_in_p
 
     // std::string del_me = j_in_params.dump();
     while (cmd_field->name != nullptr) {
-        
+
         const Json& in_field_param = j_in_params[cmd_field->name];
         // std::string del_me2 = in_field_param.dump();
 
@@ -533,7 +614,27 @@ int TFlowCtrl::setField(tflow_cmd_field_t* cmd_field, const Json& cfg_param)
             new_num_value = cfg_param.int_value();
         }
         else if (cfg_param.is_string()) {
-            new_num_value = atoi(cfg_param.string_value().data());
+            // If string received for numeric fields, then check UI 
+            // If the field has UI definition and it is DROPDOWN, then try to 
+            // match input string with dropdown list entries.
+            if (cmd_field->ui_ctrl && 
+                cmd_field->ui_ctrl->type == UICTRL_TYPE::DROPDOWN) {
+                const char **dd_entry = cmd_field->ui_ctrl->dropdown.val;
+                int i = 0;
+                while (*dd_entry) {
+                    if (0 == strcmp(*dd_entry, cfg_param.string_value().data())) {
+                        new_num_value = i;
+                    }
+                    i++;
+                    dd_entry++;
+                }
+            }
+            else {
+                // Not a dropdown - try to convert string to int directly
+                int v, v_num = 0;
+                v_num = sscanf(cfg_param.string_value().data(), "%i", &v); // atoi();
+                if (v_num) new_num_value = v;
+            }
         }
         else if (cfg_param.is_bool()) {
             new_num_value = cfg_param.bool_value();
@@ -544,17 +645,19 @@ int TFlowCtrl::setField(tflow_cmd_field_t* cmd_field, const Json& cfg_param)
             return -1;
         }
         if (cmd_field->v.num != new_num_value) {
-            if (nullptr == strstr(cmd_field->name, "button")) {
-                // TODO: Dirty hack. Replace for UI type examination after ui_ctrl introduced
-                //       I.e. don't update button value.
+            if (cmd_field->ui_ctrl &&
+                cmd_field->ui_ctrl->type == UICTRL_TYPE::BUTTON) {
+                // Don't care about value for buttons. Just set CHANGED flag
+                cmd_field->flags |= FIELD_FLAG::CHANGED;
+            }
+            else {
+                cmd_field->flags |= FIELD_FLAG::CHANGED;
                 cmd_field->v.num = new_num_value;
             }
-            cmd_field->flags |= FIELD_FLAG::CHANGED;
         }
         break;
     }
     case CFT_VNUM: {
-        int new_num_value;
         if (cfg_param.is_array()) {
             const Json::array &j_arr = cfg_param.array_items();
             if (j_arr.size() <= cmd_field->v.vnum->size()) {
@@ -606,7 +709,7 @@ int TFlowCtrl::setField(tflow_cmd_field_t* cmd_field, const Json& cfg_param)
         }
         else {
             g_critical("Ooops... at %s (%d) Data type mismatch. Field name: %s (%d != %d)", __FILE__, __LINE__,
-                cmd_field->name, cmd_field->type, cfg_param.type());
+            cmd_field->name, cmd_field->type, cfg_param.type());
             return -1;
         }
         break;
@@ -685,12 +788,17 @@ int TFlowCtrl::parseConfig(
         }
 
         // Top level processing 
+        rc = 0;
         while (config_cmd->fields) {
-            int was_changed; // Don't care here
-            int rc = setCmdFields(config_cmd->fields, json_cfg[config_cmd->name], was_changed);
-            if (rc) return -1;
-
-            clrFieldChanged((tflow_cmd_field_t*)config_cmd->fields);
+            const json11::Json &j_cmd_cfg = json_cfg[config_cmd->name];
+            if (j_cmd_cfg.is_object()) {
+                json11::Json::object j_out_params_dummy;
+                setFieldChanged(config_cmd->fields);
+                rc |= config_cmd->cb(j_cmd_cfg, j_out_params_dummy);
+#if CODE_BROWSE
+                TFlowCtrlProcess::cmd_cb_config();
+#endif
+            }
             config_cmd++;
         }
 
@@ -707,6 +815,23 @@ int TFlowCtrl::parseConfig(
     } while ( rc );
 
     return rc;
+}
+
+int TFlowCtrl::getDropDownIdx(const tflow_cmd_field_t *cmd_fld)
+{
+    const char * str_v = cmd_fld->v.c_str;
+    if ( cmd_fld->ui_ctrl && cmd_fld->ui_ctrl->type == TFlowCtrlUI::DROPDOWN && str_v) {
+        int i = 0;
+        const char **dd_v = cmd_fld->ui_ctrl->dropdown.val;
+        while ( *dd_v ) {
+            if ( 0 == strcmp(*dd_v, str_v) ) {
+                return i;
+            }
+            dd_v++;
+            i++;
+        }
+    }
+    return -1;
 }
 
 void TFlowCtrl::setFieldStr(tflow_cmd_field_t* f, const char* value)

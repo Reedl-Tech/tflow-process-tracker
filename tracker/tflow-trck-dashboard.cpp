@@ -5,6 +5,8 @@
 #include <vector>
 #include <string.h>
 
+#include <sys/mman.h>
+
 #if _WIN32
 #include <windows.h>
 #else 
@@ -16,16 +18,16 @@
 #include <opencv2/gapi/render.hpp>
 #include <json11.hpp>
 
-using namespace json11;
-using namespace cv;
-namespace draw = cv::gapi::wip::draw;
-
 #include "../tflow-common.hpp"
 #include "../tflow-tracelog.hpp"
 
 #include "tflow-trck-cfg.hpp"
 #include "tflow-trck.hpp"
 #include "tflow-trck-dashboard.hpp"
+
+using namespace json11;
+using namespace cv;
+using namespace std;
 
 #if OFFLINE_PROCESS
 const char* TFLOW_TRACKER_DASH_WIN = "TFlow Tracker Dashboard";
@@ -95,16 +97,34 @@ TFlowTrackerDashboard::TFlowTrackerDashboard(
     dbg_str{ TRACE_EN }
 {
     cfg = _cfg;
-    frameMain = Mat();               // Realocates Mat (wraps shared memory) on each frame
+
+    frameMain   = Mat();               // Realocates Mat (wraps shared memory) on each frame
+    frameMainY  = Mat();
+    frameMainUV = Mat();
+
+    frameCamY  = Mat();
+    frameCamUV = Mat();
+
+    frame_size_nv12 = Size((int)lround(frame_size.width),   (int)lround(frame_size.height * 1.5));
+    frame_size_Y    = Size((int)lround(frame_size.width),   (int)lround(frame_size.height));
+    frame_size_UV   = Size((int)lround(frame_size.width/2), (int)lround(frame_size.height/2));
+
+    // frame_cam_size_Y    = Size(cam_frame_w,     cam_frame_h);
+    // frame_cam_size_UV   = Size(cam_frame_w / 2, cam_frame_h / 2);
+
+    frameCamRect = Rect(20, 20, cam_frame_w, cam_frame_h);  // Note1: Size is choosen by FLYN frame format just
+                                                            //       to avoid unnecessary scaling, but 
+                                                            //       can be any other as an actual camera 
+                                                            //       frame will be scaled to this rectangle.
+                                                            // Note2: right now crashes if not equal to frame size because of grid handling 
+                                            
+#if ATIC320_9p1mm 
+    frameCamRect = Rect(20, 20, 320, 240);
+#elif TWIN412_9p1mm
+#elif COIN417G2_9p1mm
+#endif
 
     instr_refresh = 1;
-    
-    Size frame_cam_size_nv12(cam_frame_w, cam_frame_h + cam_frame_h / 2);
-    Size frame_cam_size_Y(cam_frame_w, cam_frame_h);
-    Size frame_cam_size_UV(cam_frame_w / 2, cam_frame_h / 2);
-    frameCam = Mat(frame_cam_size_nv12, CV_8UC1);
-    frameCamY = Mat(frame_cam_size_Y, CV_8UC1, (void*)frameCam.datastart);
-    frameCamUV = Mat(frame_cam_size_UV, CV_8UC2, (void*)frameCamY.dataend);
 
     instr_prims.reserve(1000);
 
@@ -119,12 +139,6 @@ TFlowTrackerDashboard::TFlowTrackerDashboard(
 
 void TFlowTrackerDashboard::addCamFrameZoomed(const cv::Rect2f grid_sector)
 {
-#define UV_RECT(_rect) Rect(  (int)_rect.x/2, (int)_rect.y/2, (int)_rect.width/2, (int)_rect.height/2)
-
-    if (frameCam.empty()) {
-        return;
-    }
-
     Rect uv_rect = UV_RECT(grid_sector);
 
 #if ZOOM_DIS
@@ -526,7 +540,10 @@ void TFlowTrackerDashboard::render()
     }
 #endif
 
-    draw::render(frameMainY, frameMainUV, instr_prims);
+    // As frameMainY and frameMainUV always create in pair, thus check Y Mat only.
+    if (!frameMainY.empty()) {
+        draw::render(frameMainY, frameMainUV, instr_prims);
+    }
 
 #if OFFLINE_PROCESS
     cv::cvtColorTwoPlane(frameMainY, frameMainUV, frameMainBGR, COLOR_YUV2BGR_NV12);
@@ -554,8 +571,8 @@ void TFlowTrackerDashboard::instrRender()
 void TFlowTrackerDashboard::getDashboardFrameSize(int *w, int *h)
 {
     if (w && h) {
-        *w = frameMain.cols; // dashboard.frame_size.width;
-        *h = frameMain.rows; // dashboard.frame_size.height;
+        *w = frame_size.width;
+        *h = frame_size.height;
     }
 }
 
@@ -567,48 +584,52 @@ void TFlowTrackerDashboard::getDashboardFrameBuff(const uint8_t **buff, size_t *
     }
 }
 
-void TFlowTrackerDashboard::initDashboardFrame()
+void TFlowTrackerDashboard::initDashboardFrame(TFlowBuf * buf)
 {
-
-    if (frameMain.empty()) {
-        Size frame_size_nv12((int)lround(frame_size.width), (int)lround(frame_size.height * 1.5));
-        Size frame_size_Y((int)lround(frame_size.width), (int)lround(frame_size.height));
-        Size frame_size_UV((int)lround(frame_size.width/2), (int)lround(frame_size.height/2));
-        frameMain = Mat(frame_size_nv12, CV_8UC1);
-        frameMainY = Mat(frame_size_Y, CV_8UC1, (void*)frameMain.datastart);
-        frameMainUV = Mat(frame_size_UV, CV_8UC2, (void*)frameMainY.dataend);
-
-#if ATIC320_9p1mm 
-        frameCamRect = Rect(20, 20, 320, 240);
-
-#elif TWIN412_9p1mm
-#elif COIN417G2_9p1mm
-        frameCamRect = Rect(20, 20, 384, 288);  // Note1: Size is choosen by FLYN frame format,
-                                                //       to avoid unnecessary scaling, but 
-                                                //       can be any other as an actual camera 
-                                                //       frame will be scaled to this rectangle.
-                                                // Note2: right now crashes if not equal to frame size because of grid handling 
-#endif
-
+    if (buf == nullptr || buf->start == MAP_FAILED) {
+        frameMain   = Mat();
+        frameMainY  = Mat();
+        frameMainUV = Mat();
+        frameCamY   = Mat();
+        frameCamUV  = Mat();
     }
-    static const cv::Scalar fill(128, 128);
-    frameMainY = 16;
-    frameMainUV = fill;
-
+    else {
+        initDashboardFrame((uint8_t *)buf->start);
+    }
 }
 
 void TFlowTrackerDashboard::initDashboardFrame(uint8_t* data_ptr)
 {
-#if DASHBOARD_FMT_NV12
-#elif DASHBOARD_FMT_BGR
-    if (data_ptr) {
-        frameMain = Mat(frame_size, CV_8UC3, data_ptr);
-        frameMain = 0;
+    int frame_changed = 0;
+
+    if (data_ptr == nullptr) {
+        // Local allocation. Create Mat if not exists yet
+        if (frameMain.empty()) {
+            // Create local data buffer
+            frameMain = Mat(frame_size_nv12, CV_8UC1);
+            frame_changed = 1;
+        }
     }
     else {
-        frameMain = Mat();
+        // Create Mat using provided data buffer.
+        // Normally from Encoder or other streamer.
+        frameMain = Mat(frame_size_nv12, CV_8UC1, data_ptr);
+        frame_changed = 1;
     }
-#endif
+
+    if (frame_changed) {
+        // Create sub Mats from the frame
+        frameMainY  = Mat(frame_size_Y,    CV_8UC1, (void*)frameMain.datastart);
+        frameMainUV = Mat(frame_size_UV,   CV_8UC2, (void*)frameMainY.dataend);
+    
+        frameCamY  = frameMainY(frameCamRect);
+        frameCamUV = frameMainUV(UV_RECT(frameCamRect));
+    }
+
+    // Fill the frame 
+    static const cv::Scalar fill(128, 128);
+    frameMainY = 16;
+    frameMainUV = fill;
 }
 
 static void drawGrid(const cv::Rect2f &rect2f, const cv::Scalar &color, vector<draw::Prim>& prims) {

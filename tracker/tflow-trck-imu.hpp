@@ -36,5 +36,3 @@ public:
     void getIMU(uint8_t* aux_data, uint32_t aux_data_len) {};
     void getIMU_flyn_v0(const TFlowImu::flyn_imu_v0* imu_in) {};
 };
-
-

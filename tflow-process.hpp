@@ -12,9 +12,13 @@
 #include "tflow-buf-cli.hpp"
 #include "tflow-buf-srv.hpp"
 #include "tflow-player.hpp"
-#include "tflow-streamer.hpp"
 #include "tflow-algo.hpp"
 #include "tflow-btc.hpp"
+
+#include "tflow-fifo-streamer.hpp"
+#include "streamer-ws/tflow-ws-vstreamer.hpp"
+
+#include "streamer-udp/tflow-udp-vstreamer.hpp"
 
 class TFlowStreamerProcess : TFlowBufSrv {
 
@@ -109,8 +113,11 @@ public:
     void onException();
 
     TFlowBufCli *buf_cli;
-    TFlowPlayer* player;
+    TFlowPlayer *player;
     TFlowStreamer *fifo_streamer;
+    TFlowAlgo* algo;
+    TFlowWsVStreamer *ws_streamer;
+    TFlowUDPVStreamer *udp_streamer;
     TFlowBtc *btc_comm;
 
     void setOpenCL(int ocl_enabled);
@@ -123,21 +130,19 @@ public:
 
     void onSrcReadyCam(TFlowBufPck::pck_fd* src_info);
     void onSrcReadyPlayer();
-    
+
     int setVideoSrc(const char *video_src);
 
     // Btc callbacks
     void onBtcMsg(const char *btc_msg);
-
+    
     TFlowCtrlProcess ctrl;
 
 private:
 
     Flag algo_state_flag;     // Power consumtion control? FL_SET -> Algorithm processing enabled; FL_CLR -> disabled. 
 
-    std::vector<cv::Mat> in_frames;
-
-    TFlowAlgo* algo = nullptr;
+    std::vector<cv::Mat> in_frames_ro;             // Captured frame. Do not modify! The frames are shared among other modules (streaming/recording)
 
     TFlowStreamerProcess *streamer = nullptr;      // Server to stream Process's renders
 

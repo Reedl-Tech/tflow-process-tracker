@@ -1,14 +1,21 @@
 #pragma once
 #include "../tflow-build-cfg.hpp"
 
-// #include <cstdint>
+#if _WIN32
+#include <WinSock2.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #include <vector>
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui.hpp>  // OpenCV window I/O
 #include <opencv2/gapi.hpp>
+#include <opencv2/gapi/render.hpp>
 
-#include <stdint.h>
+#include <json11.hpp>
+
 #if OFFLINE_PROCESS
 #include "../tflow-render.hpp"
 #else
@@ -19,14 +26,14 @@
 #include "../tflow-pwm.hpp"
 #include "../tflow-algo.hpp"
 
+#include "../tflow-buf.hpp"
+
 #include "tflow-trck-imu.hpp"
 #include "tflow-trck-feature.hpp"
 #include "tflow-trck-gftt.hpp"
 #include "tflow-trck-dashboard.hpp"
 
-#define FIX_ME_0  0
-#define FIX_ME_01 0
-#define FIX_ME_1  0
+namespace draw = cv::gapi::wip::draw;
 
 #pragma pack (push,1)
 struct TFlowTrackerMsg {
@@ -86,7 +93,7 @@ public:
 
 private:
     // Currently received
-    Size frame_size;
+    cv::Size frame_size;
     int targeting_en;
     int butt_event;
     int butt_event_id;
@@ -97,7 +104,9 @@ class TFlowTracker : public TFlowAlgo {
 private:
     std::shared_ptr<TFlowBufPck> sp_pck_gftt;
 
-    std::vector<cv::Mat> &in_frames;            // References to Mat() in TFlowProcess
+    std::vector<cv::Mat> &in_frames_ro;            // References to Read Only Mat() in TFlowProcess
+    std::vector<cv::Mat> in_frames_vc;             // Local copy of input frames - can be modified. Normally by Video Conditioning (vc)
+
 
     std::vector<cv::Mat> pyrA;
     std::vector<cv::Mat> pyrB;
@@ -119,16 +128,16 @@ public:
     TFlowBufPck::pck& getMsg(int* msg_len);                     // Returns the message to send back.
 
     /* Dashboard specific Algo overrides */
-    void getDashboardFrameSize(int* w, int* h)
+    void getDashboardFrameSize(int *w, int *h)
         { dashboard.getDashboardFrameSize(w, h); };
     void getDashboardFrameBuff(const uint8_t** buff, size_t* buff_len)
         { dashboard.getDashboardFrameBuff(buff, buff_len); };
-    void initDashboardFrame() 
-        { dashboard.initDashboardFrame(); };                    // Create/Init Dashboard frame locally
     void initDashboardFrame(uint8_t* data_ptr) 
         { dashboard.initDashboardFrame(data_ptr); };            // Create/Init Dashboard from provided data buffer.
+    void initDashboardFrame(TFlowBuf * buf) 
+        { dashboard.initDashboardFrame(buf); };            // Create/Init Dashboard from provided data buffer.
 
-    int onConfig(const json11::Json& j_in_params, json11::Json::object& j_out_params);
+    int onConfig(json11::Json::object& j_out_params, TFlowAlgo::tflow_cfg_algo *rw_cfg);
     /* ======================================= */
 
     static constexpr int TFLOWBUF_MSG_CUSTOM_TRACKER = (TFlowBufPck::TFLOWBUF_MSG_CUSTOM_ + 1);    // 0x81
@@ -142,7 +151,7 @@ public:
         MAP      = (1 << 6),
     };
 
-    TFlowTracker(std::vector<cv::Mat>& _in_frames, const TFlowTrackerCfg::cfg_tracker* cfg);
+    TFlowTracker(std::vector<cv::Mat>& _in_frames_ro, const TFlowTrackerCfg::cfg_tracker* cfg);
 
     ~TFlowTracker();
 
@@ -185,13 +194,13 @@ public:
     void featPreviewChoose(std::vector<TFlowFeature*> &feat_to_track);
     
     void featUpdate(
-        vector<cv::Mat>& pyr_curr, vector<cv::Mat>& pyr_prev,
+        std::vector<cv::Mat>& pyr_curr, std::vector<cv::Mat>& pyr_prev,
         std::vector<TFlowFeature*> features_to_track);
 
     void featRespawn(const cv::Mat &frame, const TFlowImu& imu);
     int  featMinDistance(TFlowFeature& in_feat);
     
-    void featPreviewSelect(const Point2i &cursor_pos);
+    void featPreviewSelect(const cv::Point2i &cursor_pos);
     void featPreviewRespawn(const cv::Mat &frame, const TFlowImu& imu);
     void gfttPreviewFeatUpdate(std::vector<cv::Point2f> flow_points, std::vector<unsigned char> flow_status);
 
@@ -203,10 +212,10 @@ public:
 
     void dashboardUpdate();
     // Render debug info to the provided frame
-    void RenderDebugInfo(cv::Mat& frame);
-    void renderPitchHold(vector<draw::Prim>& prims);
-    void renderPreviewCursor(vector<draw::Prim>& prims);
-    void renderGrid(vector<draw::Prim>& prims);
+    void RenderDebugInfo();
+    void renderPitchHold(std::vector<draw::Prim>& prims);
+    void renderPreviewCursor(std::vector<draw::Prim>& prims);
+    void renderGrid(std::vector<draw::Prim>& prims);
 
     TFlowPerfMon perf_mon;
 

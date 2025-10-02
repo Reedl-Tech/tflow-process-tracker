@@ -27,7 +27,7 @@ public:
 
     TFlowBufSrv* srv;
 
-    int onMsg();
+    int onUDPMsg();
 
     uint32_t cli_port_mask;
 

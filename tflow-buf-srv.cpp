@@ -13,7 +13,7 @@ gboolean TFlowBufSrv::onCliMsg(Glib::IOCondition io_cond)
     TFlowBufSCliPort* cli_port = nullptr; // source->cli_port;
     // ...
 
-    int rc = cli_port->onMsg();
+    int rc = cli_port->onUDPMsg();
     if (rc) {
         releaseCliPort(cli_port);
         return G_SOURCE_REMOVE;
@@ -365,11 +365,11 @@ int TFlowBufSCliPort::onSign(TFlowBufPck::pck_sign *pck_sign)
     return rc;
 }
 
-int TFlowBufSCliPort::onMsg()
+int TFlowBufSCliPort::onUDPMsg()
 {
-    TFlowBufPck::pck in_msg;
+    TFlowBufPck::pck in_udp_msg;
 
-    int res = recv(sck_fd, &in_msg, sizeof(in_msg), 0); //MSG_DONTWAIT 
+    int res = recv(sck_fd, &in_udp_msg, sizeof(in_udp_msg), 0); //MSG_DONTWAIT 
     int err = errno;
 
     if (res <= 0) {
@@ -384,15 +384,15 @@ int TFlowBufSCliPort::onMsg()
         return -1;
     }
 
-    switch (in_msg.hdr.id) {
+    switch (in_udp_msg.hdr.id) {
     case TFlowBufPck::TFLOWBUF_MSG_SIGN:
-        return onSign((TFlowBufPck::pck_sign*)&in_msg);
+        return onSign((TFlowBufPck::pck_sign*)&in_udp_msg);
 	case TFlowBufPck::TFLOWBUF_MSG_PING:
-        return onPing((TFlowBufPck::pck_ping*)&in_msg);
+        return onPing((TFlowBufPck::pck_ping*)&in_udp_msg);
     case TFlowBufPck::TFLOWBUF_MSG_REDEEM:
-            return onRedeem((TFlowBufPck::pck_redeem*)&in_msg);
+            return onRedeem((TFlowBufPck::pck_redeem*)&in_udp_msg);
     default:
-        g_warning("TFlowBufCliPort: unexpected message received (%d)", in_msg.hdr.id);
+        g_warning("TFlowBufCliPort: unexpected message received (%d)", in_udp_msg.hdr.id);
     }
 
     return 0;

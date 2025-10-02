@@ -2,8 +2,10 @@
 
 #include "../tflow-algo.hpp"
 #include "../tflow-ctrl.hpp"
+
 #include "tflow-trck-cfg.hpp"
 #include "tflow-trck.hpp"
+
 
 /*
  * Interface file to link user's specific algorithm with TFlowProcess
@@ -11,17 +13,23 @@
  * configuration.
  */
 
-TFlowAlgo* TFlowAlgo::createAlgoInstance(std::vector<cv::Mat>& _in_frames)
-{
-    return (TFlowAlgo*)(new TFlowTracker(_in_frames, &tflow_trck_cfg.cmd_flds_cfg_tracker));
-}
-
-static struct TFlowCtrlUI::uictrl ui_group_algo_def = {
-    .type = TFlowCtrlUI::UICTRL_TYPE::GROUP,
-};
-
 TFlowAlgo::tflow_cfg_algo cmd_flds_cfg_algo  = {
     TFLOW_CMD_HEAD("algo_head"),
-    .tflow_algo = {"Tracker", TFlowCtrl::CFT_REF, 0, {.ref = &tflow_trck_cfg.cmd_flds_cfg_tracker.head}, &ui_group_algo_def},
+    .tflow_algo = {"Tracker", TFlowCtrl::CFT_REF, 0, {.ref = &tflow_trck_cfg.cmd_flds_cfg_tracker.head}, &ui_group_def},
     TFLOW_CMD_EOMSG
 };
+TFlowAlgo* TFlowAlgo::createAlgoInstance(std::vector<cv::Mat>& _in_frames_ro)
+{
+    TFlowAlgo* algo = new TFlowTracker(_in_frames_ro, &tflow_trck_cfg.cmd_flds_cfg_tracker);
+    // Force config update to validate parameters in assumption no threads
+    // started in the constructor.
+
+    json11::Json::object j_out_params_dummy;
+    
+    TFlowCtrl::setFieldChanged(&cmd_flds_cfg_algo.tflow_algo);
+    algo->onConfig(j_out_params_dummy, &cmd_flds_cfg_algo);
+    TFlowCtrl::clrFieldChanged(&cmd_flds_cfg_algo.tflow_algo);
+
+    return algo;
+}
+

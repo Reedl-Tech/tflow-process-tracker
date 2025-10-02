@@ -9,3 +9,4 @@ const cv::Scalar orange = cv::Scalar{ 0,   128, 255 }; // B/G/R
 const cv::Scalar green  = cv::Scalar{ 0,   255,   0 };
 const cv::Scalar coral  = cv::Scalar{ 129, 129, 241 };
 const cv::Scalar white  = cv::Scalar{ 255, 255, 255 };
+const cv::Scalar gray   = cv::Scalar{  92,  92,  92 };

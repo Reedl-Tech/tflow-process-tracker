@@ -1,38 +1,25 @@
-#include <termios.h>
+#pragma once 
 
-// Class provide connection to autopilot
-// 
+#include "tflow-build-cfg.hpp"
 
-class TFlowStreamer {
+#include "tflow-glib.hpp"
+#include "tflow-common.hpp"
 
+#include "tflow-buf.hpp"
+#include "tflow-buf-pck.hpp"
+#include "tflow-ctrl.hpp"
+
+class TFlowAP {     // Interface class. Pure virtual.
 public:
-    TFlowStreamer();
-    ~TFlowStreamer();
-    void fifoOpenThreaded();
-    void fifoClose();
-    void fifoWrite(const void* buff, size_t buff_size);
+    struct tflow_cfg_ap {
+        TFlowCtrl::tflow_cmd_field_t   head;
+        TFlowCtrl::tflow_cmd_field_t   tflow_ap;
+        TFlowCtrl::tflow_cmd_field_t   eomsg;
+    };
 
-    int get_fd();
-    void set_fd(int _fd);
-
-    int get_pending();
-    void set_pending(int _pending);
-
-private:
-    const char* fifoName    { "/tmp/raw_video" };
-    int last_err;
-
-    /* Variables accessed from Thread
-     * Access must be protected by mutex
-     */
-    int fd;
-    int pending;
-
-    /**************************************/
-    pthread_t           th;
-    pthread_cond_t      th_cond;
-    pthread_mutex_t     th_mutex;
-    
-    void OpenFifoThread();
-    static void* _OpenFifoThread(void* ctx); // A wrapper for OpenFifoThread
+    virtual ~TFlowAP() {}
+    virtual int onCaptureMsgRcv(const TFlowBufPck::pck& in_udp_msg) = 0;  // An input packet received from external module. For ex. tflow-process   
+    virtual void onIdle(const struct timespec &now_ts) = 0;
+    virtual int onBuf(TFlowBuf &buf) = 0;                             // Called on each video frame. Assuming AP will add some custom data to AUX section.
+    static TFlowAP* createAPInstance(MainContextPtr context);
 };
