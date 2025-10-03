@@ -274,10 +274,18 @@ TFlowUDPVStreamer::TFlowUDPVStreamer(MainContextPtr _context, int _w, int _h,
         std::bind(&TFlowUDPVStreamer::onFrameEncoded, this, std::placeholders::_1));
 
     tflow_tlv_key[0] = 0x342E5452;
-    tflow_tlv_key[2] = 0x354B0000;
-
     tflow_tlv_dlt[0] = 0x342E5452;
-    tflow_tlv_dlt[2] = 0x35500000;
+
+    if (v4l2_enc_cfg->codec.v.num == TFlowEncUI::ENC_CODEC_H264) {
+        tflow_tlv_key[2] = 0x344B0000;
+        tflow_tlv_dlt[2] = 0x34500000;
+    }
+    else if (v4l2_enc_cfg->codec.v.num == TFlowEncUI::ENC_CODEC_H265) {
+        tflow_tlv_key[2] = 0x354B0000;
+        tflow_tlv_dlt[2] = 0x35500000;
+    } else {
+        assert(0);
+    }
 
     pck_seq = 0;
 

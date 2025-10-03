@@ -250,6 +250,20 @@ int TFlowWsVStreamer::start()
     TFlowEncCfg::cfg_v4l2_enc *v4l2_enc_cfg = 
         (TFlowEncCfg::cfg_v4l2_enc*)cfg->v4l2_enc.v.ref;
 
+    tflow_tlv_key[0] = 0x342E5452;
+    tflow_tlv_dlt[0] = 0x342E5452;
+
+    if (v4l2_enc_cfg->codec.v.num == TFlowEncUI::ENC_CODEC_H264) {
+        tflow_tlv_key[2] = 0x344B0000;
+        tflow_tlv_dlt[2] = 0x34500000;
+    }
+    else if (v4l2_enc_cfg->codec.v.num == TFlowEncUI::ENC_CODEC_H265) {
+        tflow_tlv_key[2] = 0x354B0000;
+        tflow_tlv_dlt[2] = 0x35500000;
+    } else {
+        assert(0);
+    }
+
     // ATT: Encoder can be reconfigured in runtime, i.e. recreated. Thus, 
     //      DO NOT assume pointer is always exists.
     encoder = new TFlowEnc(context, frame_width, frame_height, v4l2_enc_cfg,
@@ -281,12 +295,6 @@ TFlowWsVStreamer::TFlowWsVStreamer(MainContextPtr _context, int _w, int _h,
     frame_height = _h;
 
     cfg = ws_streamer_cfg;
-
-    tflow_tlv_key[0] = 0x342E5452;
-    tflow_tlv_key[2] = 0x354B0000;
-
-    tflow_tlv_dlt[0] = 0x342E5452;
-    tflow_tlv_dlt[2] = 0x35500000;
 
     last_idle_check = 0;
     
