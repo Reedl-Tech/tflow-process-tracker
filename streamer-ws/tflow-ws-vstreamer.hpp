@@ -22,7 +22,8 @@ public:
     TFlowBuf* getFreeBuffer();
     int consumeBuffer(TFlowBuf& buf);
 
-    int onConfig(json11::Json::object& j_out_params, const TFlowWSStreamerCfg::cfg_ws_streamer *cfg);
+    void onConfigValidate(json11::Json::object& j_out_params, TFlowWSStreamerCfg::cfg_ws_streamer *rw_cfg);
+    int onConfig(json11::Json::object& j_out_params);
 
     TFlowEnc *encoder;
 

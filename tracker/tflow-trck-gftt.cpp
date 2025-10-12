@@ -39,9 +39,12 @@ static Mat empty_mat = Mat();
 TFlowGftt::TFlowGftt(
     const TFlowTrackerCfg::cfg_trck_gftt_flytime* _cfg_flytime,
     const TFlowTrackerCfg::cfg_trck_gftt_preview* _cfg_preview,
-    int frame_h, int frame_v) :
+    const cv::Size &frame_size) :
     frame{ empty_mat }
 {
+    frame_h = frame_size.height;
+    frame_v = frame_size.width;
+
     cfg_flytime = _cfg_flytime;
     cfg_preview = _cfg_preview;
     is_busy = true;

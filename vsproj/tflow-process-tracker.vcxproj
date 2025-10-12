@@ -184,6 +184,7 @@
     <ClCompile Include="..\tracker\tflow-trck-gftt.cpp" />
     <ClCompile Include="..\tracker\tflow-trck-if.cpp" />
     <ClCompile Include="..\tracker\tflow-trck.cpp" />
+    <ClCompile Include="..\video-cond\tflow-vcond.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\encoder-v4l2\tflow-v4l2enc-cfg.hpp" />
@@ -222,6 +223,8 @@
     <ClInclude Include="..\tracker\tflow-trck-gftt.hpp" />
     <ClInclude Include="..\tracker\tflow-trck-imu.hpp" />
     <ClInclude Include="..\tracker\tflow-trck.hpp" />
+    <ClInclude Include="..\video-cond\tflow-vcond-cfg.hpp" />
+    <ClInclude Include="..\video-cond\tflow-vcond.hpp" />
     <ClInclude Include="buildin.h" />
   </ItemGroup>
   <ItemGroup>

@@ -137,7 +137,7 @@ void TFlowPerfMon::tickStop()
     avg_load << load_sample_ms;
 }
 
-void TFlowPerfMon::Render(vector<cv::gapi::wip::draw::Prim>& prims)
+void TFlowPerfMon::render(vector<cv::gapi::wip::draw::Prim>& prims)
 {
     char txt_load_fps[32] = "";
     char txt_load_msec[32] = "";

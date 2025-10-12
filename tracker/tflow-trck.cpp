@@ -64,36 +64,31 @@ static void initGridRect(const cv::Rect2f& grid_rect, std::vector<cv::Rect2f>& g
     }
 }
 
-TFlowTracker::TFlowTracker(
-    std::vector<cv::Mat>& _in_frames_ro,
+TFlowTracker::TFlowTracker(cv::Size _frame_size, 
     const TFlowTrackerCfg::cfg_tracker* _cfg) :
 
     dbg_str{ TRACE_EN },
-    in_frames_ro(_in_frames_ro),
 
-#if ATIC320_9p1mm
-#elif TWIN412_9p1mm
-#elif COIN417G2_9p1mm
-#endif
+    frame_size(_frame_size),
 
     gftt_flytime(
         (TFlowTrackerCfg::cfg_trck_gftt_flytime*)(_cfg->gftt_flytime.v.ref),
         (TFlowTrackerCfg::cfg_trck_gftt_preview*)(_cfg->gftt_preview.v.ref),
-        in_frames_ro.at(0).cols, in_frames_ro.at(0).rows),
+        frame_size),
+
     gftt_preview(
         (TFlowTrackerCfg::cfg_trck_gftt_flytime*)(_cfg->gftt_flytime.v.ref),
         (TFlowTrackerCfg::cfg_trck_gftt_preview*)(_cfg->gftt_preview.v.ref),
-        in_frames_ro.at(0).cols, in_frames_ro.at(0).rows),
+        frame_size),
 
     perf_mon((const TFlowPerfMonCfg::cfg_tflow_perfmon*)_cfg->perfmon.v.ref),
     servo_pitch((const TFlowPWM::cfg_tflow_servo_cntrl*)_cfg->servo_pitch.v.ref),
-    dashboard((const TFlowTrackerCfg::cfg_trck_dashboard*)_cfg->dashboard.v.ref, in_frames_ro.at(0).cols, in_frames_ro.at(0).rows),
-    tgt(in_frames_ro.at(0).cols, in_frames_ro.at(0).rows)
+    dashboard(this, (const TFlowTrackerCfg::cfg_trck_dashboard*)_cfg->dashboard.v.ref, frame_size),
+    tgt(frame_size),
+    vcond((const TFlowVCondCfg::cfg_vcond*)_cfg->vcond.v.ref, frame_size, Point2i(184, 44))
 {
     cfg = _cfg;
 
-    frame_size = Size(in_frames_ro.at(0).cols, in_frames_ro.at(0).rows);
-    
     CleanUp();
 
     initGridRect(Rect(0, 0, frame_size.width, frame_size.height), grid0_sectors);
@@ -109,7 +104,7 @@ TFlowTracker::TFlowTracker(
     gftt_preview.is_busy = false;
 #endif
 
-
+    in_frame_local = cv::Mat(frame_size, CV_8UC1);
 }
 
 TFlowTracker::~TFlowTracker() 
@@ -643,7 +638,52 @@ void TFlowTracker::onPointer(int event, int x, int y, int flags)
     dashboard.onPointer(event, x, y, flags);
 }
 
-void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
+int TFlowImu::getData(const uint8_t* aux_data, uint32_t aux_data_len)
+{
+    uint32_t sign = *(uint32_t*)aux_data;
+    switch (sign) {
+        case 0x494D5531:    // IMU1
+            memcpy(&ap_imu, aux_data, sizeof(TFlowImu::imu_milesi_v0));
+            is_valid = 1;
+            return sizeof(TFlowImu::imu_milesi_v0);
+        default:
+            assert(0);
+    }
+
+    return 0;
+}
+
+void TFlowTracker::getAuxData(const uint8_t* aux_data, uint32_t aux_data_len)
+{
+    if (aux_data_len == 0) {
+        return;
+    }
+
+    do {
+        uint32_t sign = *(uint32_t*)aux_data;
+        uint32_t bytes_consumed = 0;
+        switch (sign) {
+        case 0x54475431:    //TGT1
+             bytes_consumed = tgt.getData(aux_data, aux_data_len);
+            break;
+
+        case 0x494D5531:    // IMU1
+            bytes_consumed  = imu.getData(aux_data, aux_data_len);
+            break;
+
+        case 0x4A53544B:    // JSTK
+            bytes_consumed = userctrl.getData(aux_data, aux_data_len);
+            break;
+        default:
+            assert(0);
+        }
+        aux_data_len -= bytes_consumed;
+        aux_data += bytes_consumed;
+    } while(aux_data_len);
+
+}
+//void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
+void TFlowTracker::onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data, uint32_t aux_data_len)
 {
     static clock_t tracker_frame_profile[7];
 
@@ -651,14 +691,19 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
 
     // In case of Player Scenario it is possible that the algorithm has 
     // to update the dashboard only. In that case sp_pck_in will be NULL
-    if (sp_pck_in || dashboard.preview_force_frame) {
+    if (!frame_in_ro.empty() || dashboard.preview_force_frame) {
 
-        if (sp_pck_in) {
-            tgt.getData(sp_pck_in->d.consume.aux_data, sp_pck_in->d.consume.aux_data_len);
+        perf_mon.tickStart();
 
-            TFlowBufPck::pck_consume* pck_curr = &sp_pck_in->d.consume;
-            Mat& frame_curr_ro = in_frames_ro.at(pck_curr->buff_index);
-            onFrameAlgo(frame_curr_ro);
+        if (!frame_in_ro.empty()) {
+
+            getAuxData(aux_data, aux_data_len);
+
+
+            vcond.onFrame(frame_in_ro, in_frame_local);
+
+            onFrameAlgo(in_frame_local);
+
         } else if (dashboard.preview_force_frame) {
             // Frame is not changed but we have some inputs from a user.
             // Let's reuse previous frame for processing.
@@ -675,7 +720,7 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
         if (pyr_curr && (*pyr_curr).size() > 0 && !(*pyr_curr)[0].empty() &&
             !dashboard.frameCamY.empty()) {
 
-             (*pyr_curr)[0].copyTo(dashboard.frameCamY);
+            (*pyr_curr)[0].copyTo(dashboard.frameCamY);
             dashboard.frameCamY += 16;                      // +16 -> NV12 specific
             dashboard.frameCamUV = cv::Scalar(128, 128);    // No color components in algo -> fill with default const
         }
@@ -684,6 +729,8 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
 
         // Render in frame debug info
         force_redraw = 1;
+        
+        perf_mon.tickStop();
     }
 
     if (force_redraw) {
@@ -695,26 +742,22 @@ void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
 
     }
 
-    if (sp_pck_in == nullptr && 
-        dashboard.instr_refresh == 0) {
+    if (frame_in_ro.empty() && dashboard.instr_refresh == 0) {
         // No input packets and dashboard not changed
         return;
     }
 
     // Debug & dashboard rendering
-    dashboardUpdate();
+    // dashboardUpdate();
     
     tracker_frame_profile[4] = clock();
 
-    dashboard.instr_prims.clear();
+    dashboard.render_prims.clear();
 
-    perf_mon.Render(dashboard.instr_prims);
-
-    tracker_frame_profile[5] = clock();
+    perf_mon.render(dashboard.render_prims);
+    vcond.render(dashboard.render_prims);
 
     dashboard.render();
-    
-    tracker_frame_profile[6] = clock();
 
     //g_info("tracker profile: Total: %-5d, Algo %-5d, CamAdd %-5d, RenderDbg %-5d, DashUpdate %-5d, RenderMon %-5d, Render Dash%-5d",
     //        tracker_frame_profile[6] - tracker_frame_profile[0],
@@ -867,7 +910,6 @@ void TFlowTracker::targetOnButtEvent(uint16_t event)
 
 void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
 {
-    perf_mon.tickStart();
 
     if (features.size() == 0) {
         // ?? Move to center??
@@ -905,6 +947,7 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
     servo_pitch.move_update();
 
     if (!frame_curr.empty()) {
+
         pyrSwap();
 
         curr_pyr_win_size = cv::Size(cfg->pyr_win_size.v.num, cfg->pyr_win_size.v.num);
@@ -999,9 +1042,7 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
     featSparse();
     featCleanup();
     featPreviewCleanup();
-    
-    perf_mon.tickStop();
-
+   
 }
 
 void TFlowTracker::onRewind()
@@ -1029,15 +1070,13 @@ int TFlowTracker::onConfig(json11::Json::object& j_out_params,
         servo_pitch.onConfig();
     }
 
-    //// Is the new file name exist ?
-    //if (j_in_params["reset"].is_number()) {
+    if (cfg->vcond.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        TFlowVCondCfg::cfg_vcond* rw_vcond_cfg =
+            (TFlowVCondCfg::cfg_vcond*)rw_trck_cfg->vcond.v.ref;
 
-    //    int reset_act = j_in_params["reset"].int_value();
-    //    if (reset_act) {
-    //        onRewind();
-    //        force_redraw = 1;
-    //    }
-    //}
+        vcond.onConfigValidate(j_out_params, rw_vcond_cfg);
+        vcond.onConfig(j_out_params);
+    }
 
     //const Json j_grid = j_in_params["grid"];
     //if (j_grid.is_string()) {
@@ -1067,10 +1106,10 @@ void TFlowTracker::fillTrackerMsg()
     msg.result_2 = 0;
 }
 
-void TFlowTracker::dashboardUpdate()
-{
-    dashboard.instrUpdate(imu);
-}
+//void TFlowTracker::dashboardUpdate()
+//{
+//    dashboard.instrUpdate(imu);
+//}
 
 void TFlowTracker::renderPitchHold(vector<draw::Prim>& prims)
 {
@@ -1227,25 +1266,28 @@ uint16_t TFlowTargeting::getEvent()
     return butt_event;
 }
 
-void TFlowTargeting::getData(uint8_t* aux_data, uint32_t aux_data_len)
+int TFlowTargeting::getData(const uint8_t* aux_data, uint32_t aux_data_len)
 {
     uint32_t sign = *(uint32_t*)aux_data;
 
     if (aux_data_len == 0) {
         is_valid = false;
-        return;
+        return 0;
     } else if (sign == 0x54475431) {  // TGT1   0x54475431
-        TFlowTargeting::targeting_input_v1 *tgt_in = 
+        const TFlowTargeting::targeting_input_v1 *tgt_in = 
             (TFlowTargeting::targeting_input_v1*)aux_data;
 
-        assert(aux_data_len == sizeof(TFlowTargeting::targeting_input_v1));
+        assert(aux_data_len >= sizeof(TFlowTargeting::targeting_input_v1));
         getTgt_v1(tgt_in);
         is_valid = true;
+        return sizeof(TFlowTargeting::targeting_input_v1);
     } 
     else {
         is_valid = false;
+        assert(0);
     }
-    
+    // No data consumed - return 0
+    return 0;    
 }
 
 void TFlowTargeting::getTgt_v1(const TFlowTargeting::targeting_input_v1* tgt_in)
@@ -1262,4 +1304,19 @@ void TFlowTargeting::getTgt_v1(const TFlowTargeting::targeting_input_v1* tgt_in)
         butt_event = tgt_in->evt;
     }
 
+}
+
+int TFlowUserctrl::getData(const uint8_t* aux_data, uint32_t aux_data_len)
+{
+    uint32_t sign = *(uint32_t*)aux_data;
+    switch (sign) {
+        case 0x4A53544B:    // JSTK
+            memcpy(&userctrl_jstk, aux_data, sizeof(TFlowUserctrl::jstk_ctrl));
+            is_valid = 1;
+            return sizeof(TFlowUserctrl::jstk_ctrl);
+        default:
+            assert(0);
+    }
+
+    return 0;
 }

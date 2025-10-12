@@ -114,7 +114,7 @@ public:
 
     void tickStart();
     void tickStop();
-    void Render(std::vector<cv::gapi::wip::draw::Prim>& prims);
+    void render(std::vector<cv::gapi::wip::draw::Prim>& prims);
     const TFlowPerfMonCfg::cfg_tflow_perfmon* cfg;
 
     static struct timespec diff_timespec(const struct timespec* time1, const struct timespec* time0);

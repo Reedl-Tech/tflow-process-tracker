@@ -24,6 +24,8 @@
 #include "../tflow-common.hpp"
 #include "../tflow-perfmon.hpp"
 #include "../tflow-pwm.hpp"
+
+#include "../video-cond/tflow-vcond.hpp"
 #include "../tflow-algo.hpp"
 
 #include "../tflow-buf.hpp"
@@ -32,6 +34,8 @@
 #include "tflow-trck-feature.hpp"
 #include "tflow-trck-gftt.hpp"
 #include "tflow-trck-dashboard.hpp"
+
+
 
 namespace draw = cv::gapi::wip::draw;
 
@@ -46,12 +50,39 @@ struct TFlowTrackerMsg {
 };
 #pragma pack(pop)
 
+class TFlowUserctrl {
+
+public:
+
+    TFlowUserctrl() {
+        memset(&userctrl_jstk, 0, sizeof(jstk_ctrl));
+        is_valid = 0;
+    }
+
+// packet received from TFlow Capture or TFlowPlayer
+#pragma pack(push,1)
+
+    struct jstk_ctrl {
+        uint32_t sign;        // JSTK 0x4A53544B
+        uint32_t tv_sec;      // Local timestamp
+        uint32_t tv_usec;     // Local timestamp
+
+        int x;
+        int y;
+        int z;
+        int r;
+    } userctrl_jstk;
+#pragma pack(pop)
+
+    int is_valid;
+    int getData(const uint8_t* aux_data, uint32_t aux_data_len);
+};
+
 
 class TFlowTargeting {
 
 public:
-    TFlowTargeting(int w, int h) :
-       frame_size(w, h)
+    TFlowTargeting(const cv::Size &_frame_size) : frame_size(_frame_size)
     {
         is_valid = 0;
 
@@ -76,8 +107,8 @@ public:
 #pragma pack(pop)
 
     int is_valid;
-    void getData(uint8_t* aux_data, uint32_t aux_data_len);             // Parse incoming data from capture
-    void getTgt_v1(const TFlowTargeting::targeting_input_v1* tgt_in);   // Parse incoming data from capture
+    
+    int getData(const uint8_t* aux_data, uint32_t aux_data_len);
 
     int getMode();  // return current mode  0 - disabled; 1 - start; 2 - enabled; 3 - finalize
     uint16_t getEvent();
@@ -92,6 +123,9 @@ public:
     int cursor_y;
 
 private:
+
+    void getTgt_v1(const TFlowTargeting::targeting_input_v1* tgt_in);
+
     // Currently received
     cv::Size frame_size;
     int targeting_en;
@@ -104,9 +138,8 @@ class TFlowTracker : public TFlowAlgo {
 private:
     std::shared_ptr<TFlowBufPck> sp_pck_gftt;
 
-    std::vector<cv::Mat> &in_frames_ro;            // References to Read Only Mat() in TFlowProcess
-    std::vector<cv::Mat> in_frames_vc;             // Local copy of input frames - can be modified. Normally by Video Conditioning (vc)
-
+    cv::Mat in_frame_local;             // Local copy of input frame - can be modified. Normally by Video Conditioning (vc)
+                                        // TODO: Try use UMat instead.
 
     std::vector<cv::Mat> pyrA;
     std::vector<cv::Mat> pyrB;
@@ -119,11 +152,13 @@ private:
     cv::Size frame_size;
 
     void onFrameAlgo(cv::Mat& frame_curr);
+
 public:
 
     /* ======== TFlow Algo overrides ========= */
     void onPointer(int event, int x, int y, int flags);
-    void onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in);       // Main entry point
+    // void onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in);    // Main entry point
+    void onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data_buf, uint32_t aux_data_len);
     void onRewind();                                            // Called on player rewind
     TFlowBufPck::pck& getMsg(int* msg_len);                     // Returns the message to send back.
 
@@ -140,6 +175,8 @@ public:
     int onConfig(json11::Json::object& j_out_params, TFlowAlgo::tflow_cfg_algo *rw_cfg);
     /* ======================================= */
 
+    void getAuxData(const uint8_t* aux_data, uint32_t aux_data_len);
+
     static constexpr int TFLOWBUF_MSG_CUSTOM_TRACKER = (TFlowBufPck::TFLOWBUF_MSG_CUSTOM_ + 1);    // 0x81
 
     enum class RenderDbg {
@@ -151,7 +188,7 @@ public:
         MAP      = (1 << 6),
     };
 
-    TFlowTracker(std::vector<cv::Mat>& _in_frames_ro, const TFlowTrackerCfg::cfg_tracker* cfg);
+    TFlowTracker(cv::Size _frame_size, const TFlowTrackerCfg::cfg_tracker* cfg);
 
     ~TFlowTracker();
 
@@ -166,6 +203,8 @@ public:
 
     TFlowTargeting              tgt;
     TFlowImu                    imu;
+    TFlowUserctrl               userctrl;
+
     TFlowGftt                   gftt_flytime;
     TFlowGftt                   gftt_preview;
 
@@ -182,9 +221,10 @@ public:
     std::vector<cv::Rect2f>     grid1_sectors;
 
     int force_redraw;                // Set from on configuration change
-    struct TFlowTrackerMsg msg;         // Output message. Filled by request from host process.
+    struct TFlowTrackerMsg msg;      // Output message. Filled by request from host process.
 
     /****************/
+
     void CleanUp();
 
     void pyrSwap();
@@ -210,7 +250,7 @@ public:
 
     void fillTrackerMsg();
 
-    void dashboardUpdate();
+    // void dashboardUpdate();
     // Render debug info to the provided frame
     void RenderDebugInfo();
     void renderPitchHold(std::vector<draw::Prim>& prims);
@@ -220,6 +260,8 @@ public:
     TFlowPerfMon perf_mon;
 
     TFlowPWM servo_pitch;
+
+    TFlowVCond vcond;
 
     cv::Rect2f getGridSector();
 

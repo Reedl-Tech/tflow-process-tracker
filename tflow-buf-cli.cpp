@@ -144,6 +144,9 @@ bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
         
         onConsume(sp_pck);      // Nothing todo here. Update statistics?
         if (app_onFrame) app_onFrame(sp_pck);
+#if CODE_BROWSE
+             TFlowProcess::onFrame(sp_pck);
+#endif
 
         // Upon sp_pck.reset, if no other objects held the packet, the REDEEM
         // request will be sent from the packet destructor. 

@@ -23,7 +23,7 @@ public:
     TFlowGftt(
         const TFlowTrackerCfg::cfg_trck_gftt_flytime *cfg_flytime,
         const TFlowTrackerCfg::cfg_trck_gftt_preview *cfg_preview,
-        int frame_h, int frame_v);
+        const cv::Size &frame_size);
 
     ~TFlowGftt();
 

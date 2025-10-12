@@ -4,6 +4,9 @@
 #include "../tflow-perfmon.hpp"
 #include "../tflow-pwm.hpp"
 
+#include "../video-cond/tflow-vcond-cfg.hpp"
+
+
 class TFlowTrackerUI : public TFlowCtrlUI {
     // see strftime()
     const char *time_format_entries[3] = {
@@ -173,6 +176,7 @@ public:
         TFlowCtrl::tflow_cmd_field_t   servo_pitch;
         TFlowCtrl::tflow_cmd_field_t   perfmon;
         TFlowCtrl::tflow_cmd_field_t   dashboard;
+        TFlowCtrl::tflow_cmd_field_t   vcond;
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_tracker = {
         TFLOW_CMD_HEAD("Tracker"),
@@ -199,6 +203,7 @@ public:
         .servo_pitch           = { "servo_pitch",  TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_servo_pitch.head               }, &ui_group_def },
         .perfmon               = { "perfmon",      TFlowCtrl::CFT_REF, 0, {.ref = &tflow_perfmon_cfg.cmd_flds_cfg_perfmon.head }, &ui_group_def },
         .dashboard             = { "dashboard",    TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_dashboard.head            }, &ui_group_def },
+        .vcond                 = { "vcond",        TFlowCtrl::CFT_REF, 0, {.ref = &tflow_vcond_cfg.cmd_flds_cfg_vcond.head     }, &ui_group_def},
         TFLOW_CMD_EOMSG
     };
 

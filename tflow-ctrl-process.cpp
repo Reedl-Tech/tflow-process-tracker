@@ -246,13 +246,13 @@ int TFlowCtrlProcess::cmd_cb_ui_sign(const json11::Json& j_in_params, Json::obje
 
 int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::object& j_out_params)
 {
-    tflow_cmd_field_t* flds = (tflow_cmd_field_t*)&cmd_flds_config;
+    tflow_cmd_field_t* rw_flds = (tflow_cmd_field_t*)&cmd_flds_config;
 
     g_info("Config command: %s", j_in_params.dump().c_str());
 
     // Fill config fields with values from Json input object
     int was_changed = 0;
-    int rc = setCmdFields(flds, j_in_params, was_changed);
+    int rc = setCmdFields(rw_flds, j_in_params, was_changed);
 
     if ( rc != 0 ) {
         j_out_params.emplace("error", "Can't parse");
@@ -270,11 +270,12 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
     }
 
     if (cmd_flds_config.ws_streamer.flags & FIELD_FLAG::CHANGED) {
-        const TFlowWSStreamerCfg::cfg_ws_streamer* ws_streamer_cfg = 
+        TFlowWSStreamerCfg::cfg_ws_streamer* ws_streamer_rw_cfg = 
             (TFlowWSStreamerCfg::cfg_ws_streamer*)cmd_flds_config.ws_streamer.v.ref;
 
         if (app.ws_streamer) {
-            app.ws_streamer->onConfig(j_out_params, ws_streamer_cfg);
+            app.ws_streamer->onConfigValidate(j_out_params, ws_streamer_rw_cfg);
+            app.ws_streamer->onConfig(j_out_params);
         }
     }
 
@@ -294,7 +295,7 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
     // If previous config_id doesn't match with one receive in command, then
     // collect _all_ controls.
     // TODO: Collect UI exposed controls only?
-    collectRequestedChangesTop(flds, j_in_params, j_out_params);
+    collectRequestedChangesTop(rw_flds, j_in_params, j_out_params);
 
     return 0;
 }

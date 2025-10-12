@@ -56,8 +56,8 @@
             },
 
             "dashboard": {
-                "main_win_w": 424,
-                "main_win_h": 328,
+                "main_win_w": 640,
+                "main_win_h": 480,
                 "time_fmt": "%T",
                 "time_lbl_x": 380,
                 "time_lbl_y": 20,

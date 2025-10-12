@@ -109,8 +109,8 @@ void TFlowWsVStreamer::wakeup(struct mg_connection* c, int enc_buf_idx)
         uint32_t tlv_hdr;
     } enc_tlv = {
         .magic = enc_tlv_templ[0],
-        .seq = enc_seq++,
-        .tlv_hdr = enc_tlv_templ[2] | enc_buf_len
+        .seq = (uint32_t)enc_seq++,
+        .tlv_hdr = enc_tlv_templ[2] | (uint32_t)enc_buf_len
     };
 #pragma pack(pop)
 
@@ -320,15 +320,29 @@ TFlowWsVStreamer::~TFlowWsVStreamer()
     stop();
 }
 
-int TFlowWsVStreamer::onConfig(json11::Json::object& j_out_params, 
-    const TFlowWSStreamerCfg::cfg_ws_streamer *cfg)
+void TFlowWsVStreamer::onConfigValidate(json11::Json::object& j_out_params,
+    TFlowWSStreamerCfg::cfg_ws_streamer* rw_cfg)
 {
+    // Validate and fix parameters if needed. Set "changed" flag on modified 
+    // parameters. For ex. in case of parameters mutal relation.
+    // Called from TFlowCtrl only.
+    // ...
 
     if (encoder && cfg->v4l2_enc.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
-        const TFlowEncCfg::cfg_v4l2_enc *enc_cfg = 
-            (TFlowEncCfg::cfg_v4l2_enc*)cfg->v4l2_enc.v.ref;
+        TFlowEncCfg::cfg_v4l2_enc *rw_enc_cfg = 
+            (TFlowEncCfg::cfg_v4l2_enc*)rw_cfg->v4l2_enc.v.ref;
 
-        int rc = encoder->onConfig(j_out_params, enc_cfg);
+        encoder->onConfigValidate(j_out_params, rw_enc_cfg);
+    }
+}
+
+int TFlowWsVStreamer::onConfig(json11::Json::object& j_out_params)
+{
+    // Apply WebSocket streamer configuration here
+
+    if (encoder && cfg->v4l2_enc.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+
+        int rc = encoder->onConfig(j_out_params);
         if (rc == -1) {
             // New configuration can be applied through full restart only
             stop();
@@ -337,5 +351,6 @@ int TFlowWsVStreamer::onConfig(json11::Json::object& j_out_params,
 
     }
 
+    return 0;
 
 }

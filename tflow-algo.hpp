@@ -20,7 +20,7 @@ public:
     virtual ~TFlowAlgo() {}
 
     virtual void onPointer(int event, int x, int y, int flags) = 0;
-    virtual void onFrame(std::shared_ptr<TFlowBufPck> sp_pck) = 0;
+    virtual void onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data_buf, uint32_t aux_data_len) = 0;
     virtual void onRewind() = 0;
     virtual TFlowBufPck::pck& getMsg(int* msg_len) = 0;
     virtual void getDashboardFrameSize(int* w, int* h) = 0;                         // Is used to request frames from a streamer
@@ -32,7 +32,7 @@ public:
     virtual int onConfig(json11::Json::object& j_out_params, 
         TFlowAlgo::tflow_cfg_algo *cfg) = 0;
 
-    static TFlowAlgo* createAlgoInstance(std::vector<cv::Mat>& _in_frames_ro);
+    static TFlowAlgo* createAlgoInstance(const std::vector<cv::Mat>& _in_frames_ro);
 };
 
 

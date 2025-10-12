@@ -108,10 +108,10 @@ void TFlowEnc::EncThread()
         }
         if (pollFds[0].revents & POLLERR) {
             assert(0);
+            // break;
             g_critical("V4l2Driver: poll error received\n");
             // mError = true;
             // onV4l2Error(POLLERR);
-            break;
         }
 
         if (pollFds[0].revents & POLLPRI) {
@@ -234,6 +234,8 @@ int TFlowEnc::onInputReleased(TFlowBuf& buf)
     
     buf.v4l2_buf.m.planes->bytesused = 0;
     buf.state = TFlowBuf::BUF_STATE_FREE;
+
+    return 0;
 }
 
 int TFlowEnc::onOutputReady(TFlowBuf& buf)
@@ -671,7 +673,8 @@ int TFlowEnc::Init()
     if (rc) return rc;
 
 
-    //ioctlSetParams();
+    json11::Json::object j_dummy;
+    rc = onConfig(j_dummy, true);
     //if (rc) return rc;
 
     prepareBuffers();
@@ -683,7 +686,7 @@ int TFlowEnc::Init()
         enqueueOutputBuffer(b);
     }
 
-    usleep(100 * 1000); // TODO: Why
+    usleep(100 * 1000); // TODO: Why?
 
     createPollThread();
 
@@ -901,11 +904,37 @@ TFlowEnc::TFlowEnc(MainContextPtr _context, int _w, int _h, const TFlowEncCfg::c
     }
  }    
 
-int TFlowEnc::onConfig(json11::Json::object& j_out_params, const TFlowEncCfg::cfg_v4l2_enc* cfg)
+void TFlowEnc::onConfigValidate(json11::Json::object& j_out_params, TFlowEncCfg::cfg_v4l2_enc* rw_cfg)
+{
+    // Check limits and fix values if necessary
+    // ...
+    // Parameters are validate and fixed via rw_cfg pointer and then onConfig
+    // uses internal R/O pointer to access these parameters
+
+    // QP limit
+    // GOP limit
+    // Profile
+    // ...
+
+    // Stop Encoder here if required for reconfiguration or introduce a 
+    // dedicated flag for Stop/Start
+
+    g_info("TFlowEnc: OK");
+    return;
+
+}
+
+int TFlowEnc::onConfig(json11::Json::object& j_out_params, int force_update)
 {
     int rc;
+
+    // force_update - normally used in constructor for initial parameters
+    //                setup.
+
     // On non-runtime reconfiguration restart Encoder
     //
+
+    // 
 
     if (cfg->codec.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
         // can't be changed on the fly - restart required
@@ -945,32 +974,32 @@ int TFlowEnc::onConfig(json11::Json::object& j_out_params, const TFlowEncCfg::cf
         return 0;
     }
 
-    if (cfg->profile.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+    if (cfg->profile.flags & TFlowCtrl::FIELD_FLAG::CHANGED || force_update) {
         hevc_ctrls[HEVC_CTRL_HEVC_PROFILE].value = cfg->profile.v.num;
     }
 
-    if (cfg->qp.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+    if (cfg->qp.flags & TFlowCtrl::FIELD_FLAG::CHANGED || force_update) {
         hevc_ctrls[HEVC_CTRL_HEVC_MIN_QP].value = (*cfg->qp.v.vnum)[0];
         hevc_ctrls[HEVC_CTRL_HEVC_MAX_QP].value = (*cfg->qp.v.vnum)[1];
     }
 
-    if (cfg->qp_i.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+    if (cfg->qp_i.flags & TFlowCtrl::FIELD_FLAG::CHANGED || force_update) {
         hevc_ctrls[HEVC_CTRL_HEVC_I_FRAME_QP].value = cfg->qp_i.v.num - 1;      /* Actual range is -1 .. 51, slider is 0..52 */
     }
 
-    if (cfg->qp_p.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+    if (cfg->qp_p.flags & TFlowCtrl::FIELD_FLAG::CHANGED || force_update) {
         hevc_ctrls[HEVC_CTRL_HEVC_P_FRAME_QP].value = cfg->qp_p.v.num - 1;      /* Actual range is -1 .. 51, slider is 0..52 */
     }
 
-    if (cfg->gop_size.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+    if (cfg->gop_size.flags & TFlowCtrl::FIELD_FLAG::CHANGED || force_update) {
         hevc_ctrls[HEVC_CTRL_GOP_SIZE].value = cfg->gop_size.v.num;
     }
 
-    if (cfg->bitrate_mode.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+    if (cfg->bitrate_mode.flags & TFlowCtrl::FIELD_FLAG::CHANGED || force_update) {
         hevc_ctrls[HEVC_CTRL_BITRATE_MODE].value = cfg->bitrate_mode.v.num;
     }
 
-    if (cfg->bitrate.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+    if (cfg->bitrate.flags & TFlowCtrl::FIELD_FLAG::CHANGED || force_update) {
         hevc_ctrls[HEVC_CTRL_BITRATE].value = cfg->bitrate.v.num;
     }
 

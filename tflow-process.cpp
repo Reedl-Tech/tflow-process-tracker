@@ -151,10 +151,10 @@ TFlowProcess::TFlowProcess(MainContextPtr _context, const std::string cfg_fname)
     buf_cli(nullptr),           // ATT: Order is important here!!! Keep initialization order according to declaration one.
     player(nullptr),
     fifo_streamer(nullptr),
+    algo(nullptr),
     ws_streamer(nullptr),
     udp_streamer(nullptr),
     btc_comm(nullptr),
-    algo(nullptr),
     context(_context),
     ctrl(*this, cfg_fname)
 {
@@ -351,6 +351,9 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
 
     static clock_t proc_frame_profile[5];
 
+    uint32_t aux_data_len = sp_pck->d.consume.aux_data_len;
+    const uint8_t *aux_data = sp_pck->d.consume.aux_data;       // This data is from shared packet, thus do not modify!
+
     proc_frame_profile[0] = clock();
 
     if (!algo) return;
@@ -370,10 +373,10 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
 #endif
     proc_frame_profile[1] = clock();
 
-    algo->onFrame(sp_pck);
-    //usleep(30000);
+    TFlowBufPck::pck_consume* pck_curr = &sp_pck->d.consume;
+    const Mat& frame_curr_ro = in_frames_ro.at(pck_curr->buff_index);
 
-    proc_frame_profile[2] = clock();
+    algo->onFrame(frame_curr_ro, aux_data, aux_data_len);
 
     // If buffer client is connected, then send the result back to the 
     // frames buffers originator (for ex. tflow-capture).
@@ -500,6 +503,8 @@ void TFlowProcess::onSrcReady()
 {
     algo = TFlowAlgo::createAlgoInstance(in_frames_ro);
 
+    cv::Size frame_size(in_frames_ro[0].cols, in_frames_ro[0].rows);
+
     btc_comm = new TFlowBtc(context,
         std::bind(&TFlowProcess::onBtcMsg, this, std::placeholders::_1));
 
@@ -558,6 +563,7 @@ void TFlowProcess::onSrcReadyPlayer()
         in_frames_ro.emplace_back(
             player->frame_height, player->frame_width, mat_fmt, player->frames_tbl[i].data);       // Mat() constructor
     }
+
     onSrcReady();
 }
 
@@ -577,7 +583,7 @@ void TFlowProcess::onSrcReadyCam(TFlowBufPck::pck_fd* src_info)
 
     for (int i = 0; i < src_info->buffs_num; i++) {
         in_frames_ro.emplace_back(
-            src_info->height, src_info->width, mat_fmt, buf_cli->tflow_bufs.at(i).start);       // Mat() constructor with captured frame
+            src_info->height, src_info->width, mat_fmt, buf_cli->tflow_bufs.at(i).start);     // Mat() constructor with captured frame
     }
 
     onSrcReady();

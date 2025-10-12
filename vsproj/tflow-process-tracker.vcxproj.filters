@@ -22,6 +22,9 @@
     <Filter Include="Encoder-V4L2">
       <UniqueIdentifier>{0f10601b-72de-414d-8cbe-0042d11b630d}</UniqueIdentifier>
     </Filter>
+    <Filter Include="VideoConditioning">
+      <UniqueIdentifier>{e203b4a7-e2f3-4d8c-83ed-41311696e96c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\tracker\tflow-trck.cpp">
@@ -76,6 +79,9 @@
     </ClCompile>
     <ClCompile Include="..\streamer-udp\tflow-udp-vstreamer-if.cpp">
       <Filter>Streamer-UDP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\video-cond\tflow-vcond.cpp">
+      <Filter>VideoConditioning</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -153,6 +159,12 @@
     </ClInclude>
     <ClInclude Include="..\streamer-udp\tflow-udp-vstreamer-cfg.hpp">
       <Filter>Streamer-UDP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\video-cond\tflow-vcond.hpp">
+      <Filter>VideoConditioning</Filter>
+    </ClInclude>
+    <ClInclude Include="..\video-cond\tflow-vcond-cfg.hpp">
+      <Filter>VideoConditioning</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

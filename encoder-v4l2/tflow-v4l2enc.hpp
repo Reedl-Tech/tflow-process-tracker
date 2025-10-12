@@ -38,7 +38,8 @@ public:
     int onOutputReady(TFlowBuf &buf);
     int onInputReleased(TFlowBuf &buf);
 
-    int onConfig(json11::Json::object& j_out_params, const TFlowEncCfg::cfg_v4l2_enc *cfg);
+    int onConfig(json11::Json::object& j_out_params, int force_update = 0);
+    void onConfigValidate(json11::Json::object& j_out_params, TFlowEncCfg::cfg_v4l2_enc *rw_cfg);
 
     // Utils
     const char* v4l2buf_flags2str(uint32_t flags);

@@ -18,9 +18,11 @@ TFlowAlgo::tflow_cfg_algo cmd_flds_cfg_algo  = {
     .tflow_algo = {"Tracker", TFlowCtrl::CFT_REF, 0, {.ref = &tflow_trck_cfg.cmd_flds_cfg_tracker.head}, &ui_group_def},
     TFLOW_CMD_EOMSG
 };
-TFlowAlgo* TFlowAlgo::createAlgoInstance(std::vector<cv::Mat>& _in_frames_ro)
+TFlowAlgo* TFlowAlgo::createAlgoInstance(const std::vector<cv::Mat>& _in_frames_ro)
 {
-    TFlowAlgo* algo = new TFlowTracker(_in_frames_ro, &tflow_trck_cfg.cmd_flds_cfg_tracker);
+    cv::Size frame_size(_in_frames_ro.at(0).cols, _in_frames_ro.at(0).rows);
+
+    TFlowAlgo* algo = new TFlowTracker(frame_size, &tflow_trck_cfg.cmd_flds_cfg_tracker);
     // Force config update to validate parameters in assumption no threads
     // started in the constructor.
 

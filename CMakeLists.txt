@@ -74,6 +74,9 @@ add_executable (${PROJECT_NAME}
     "streamer-udp/tflow-udp-vstreamer-if.cpp"
     "streamer-udp/tflow-udp-vstreamer.cpp"
     "streamer-udp/tflow-udp-vstreamer.hpp"
+    "video-cond/tflow-vcond-cfg.hpp"
+    "video-cond/tflow-vcond.cpp"
+    "video-cond/tflow-vcond.hpp"
     "tflow-algo.hpp"
 )
 

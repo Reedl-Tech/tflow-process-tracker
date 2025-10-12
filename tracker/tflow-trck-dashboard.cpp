@@ -90,13 +90,17 @@ void TFlowTrackerDashboard::onPointer(int event, int x, int y, int flags)
     }
 #endif
 }
+
 TFlowTrackerDashboard::TFlowTrackerDashboard(
+    const TFlowTracker* _trck,
     const TFlowTrackerCfg::cfg_trck_dashboard* _cfg,
-    int cam_frame_w, int cam_frame_h) :
-    frame_size((float)_cfg->main_win_w.v.num, (float)_cfg->main_win_h.v.num),
+    const cv::Size &cam_frame_size) :
+    frame_size(_cfg->main_win_w.v.num, _cfg->main_win_h.v.num),
+    instrMilesi(cv::Point2i(_cfg->main_win_w.v.num/2, _cfg->main_win_h.v.num/2)),
     dbg_str{ TRACE_EN }
 {
     cfg = _cfg;
+    trck = _trck;
 
     frameMain   = Mat();               // Realocates Mat (wraps shared memory) on each frame
     frameMainY  = Mat();
@@ -105,28 +109,23 @@ TFlowTrackerDashboard::TFlowTrackerDashboard(
     frameCamY  = Mat();
     frameCamUV = Mat();
 
-    frame_size_nv12 = Size((int)lround(frame_size.width),   (int)lround(frame_size.height * 1.5));
-    frame_size_Y    = Size((int)lround(frame_size.width),   (int)lround(frame_size.height));
-    frame_size_UV   = Size((int)lround(frame_size.width/2), (int)lround(frame_size.height/2));
+    frame_size_nv12 = Size(frame_size.width,   frame_size.height + frame_size.height/2);
+    frame_size_Y    = Size(frame_size.width,   frame_size.height);
+    frame_size_UV   = Size(frame_size.width/2, frame_size.height/2);
 
-    // frame_cam_size_Y    = Size(cam_frame_w,     cam_frame_h);
-    // frame_cam_size_UV   = Size(cam_frame_w / 2, cam_frame_h / 2);
-
-    frameCamRect = Rect(20, 20, cam_frame_w, cam_frame_h);  // Note1: Size is choosen by FLYN frame format just
-                                                            //       to avoid unnecessary scaling, but 
-                                                            //       can be any other as an actual camera 
-                                                            //       frame will be scaled to this rectangle.
-                                                            // Note2: right now crashes if not equal to frame size because of grid handling 
+    // Set camera frame in center of dashboard
+    frameCamRect = Rect(
+        frame_size.width/2 - cam_frame_size.width/2,
+        frame_size.height/2 - cam_frame_size.height/2,
+        cam_frame_size.width, cam_frame_size.height);  // Note1: Size is choosen by FLYN frame format just
+                                                       //       to avoid unnecessary scaling, but 
+                                                       //       can be any other as an actual camera 
+                                                       //       frame will be scaled to this rectangle.
+                                                       // Note2: right now crashes if not equal to frame size because of grid handling 
                                             
-#if ATIC320_9p1mm 
-    frameCamRect = Rect(20, 20, 320, 240);
-#elif TWIN412_9p1mm
-#elif COIN417G2_9p1mm
-#endif
-
     instr_refresh = 1;
 
-    instr_prims.reserve(1000);
+    render_prims.reserve(1000);
 
 #if OFFLINE_PROCESS
     namedWindow(TFLOW_TRACKER_DASH_WIN, WINDOW_GUI_EXPANDED | WINDOW_KEEPRATIO);
@@ -175,374 +174,423 @@ void TFlowTrackerDashboard::addCamFrameZoomed(const cv::Rect2f grid_sector)
 
 }
 
-void TFlowTrackerDashboard::pitchInitRender()
+void TFlowInstrumentMilesi::renderCompass(std::vector<draw::Prim> &prims, float compass_angl_rad)
 {
-#define PITCH_SV_DEG_MIN 5
-#define PITCH_SV_DEG_MAJ 10
-#define PITCH_TICKS_NUM 11
+    float af_sin = sin(compass_angl_rad);
+    float af_cos = cos(compass_angl_rad);
+    rot_tr.at<double>(0) = af_cos;
+    rot_tr.at<double>(1) = -af_sin;
 
-#define PITCH_SV    15.f    // 
-#define PITCH_SH    6.f    // 
+    rot_tr.at<double>(3) = af_sin;
+    rot_tr.at<double>(4) = af_cos;
 
-#define PITCH_TOP   (-(PITCH_TICKS_NUM / 2 + 1) * PITCH_SV)     // 
-#define PITCH_BOT   (PITCH_TOP + PITCH_TICKS_NUM * PITCH_SV)
+    vect_transform_transl(rot_tr, instr_center, compass_North, compass_North_tr, compass_North_i );
+    vect_transform_transl(rot_tr, instr_center, compass_tick , compass_tick_tr , compass_tick_i  );
 
-    fig_pitch = Mat(1, 2 * PITCH_TICKS_NUM, CV_32FC2);
-    fig_pitch_tr = Mat(1, 2 * PITCH_TICKS_NUM, CV_32FC2);
-    fig_pitch_static = Mat(1, 2, CV_32FC2);
-
-    // horiz ticks 
-    fig_pitch_static.at<Point2f>(0) = Point2f(+PITCH_SH * 12, 0);
-    fig_pitch_static.at<Point2f>(1) = Point2f(+PITCH_SH * 14, 0);
-
-    float py = PITCH_TOP + PITCH_SV;
-    for (int i = 0; i < PITCH_TICKS_NUM - 1; i++) {
-        fig_pitch.at<Point2f>(0 + i * 2 + 0) = Point2f(PITCH_SH * 13, py);
-        fig_pitch.at<Point2f>(0 + i * 2 + 1) = Point2f(PITCH_SH * ((i & 1) ? 15.f : 14.f), py);
-        py += PITCH_SV;
-    }
+    prims.emplace_back(draw::Circle{ instr_center, MILESI_INSTR_R_YAW, compass_color_d, 1 });
+    prims.emplace_back(draw::Circle{ instr_center + off_2i, MILESI_INSTR_R_YAW, compass_color_h, 1 });
+    drawPolyLine(prims, compass_North_i.begin() + 0, 4, compass_color_d, 1);
+    drawPolyLine(prims, compass_North_i.begin() + 4, 4, compass_color_l, 1);
+    prims.emplace_back(draw::Line{ compass_tick_i[0], compass_tick_i[1], compass_color_d, 1 });
+    prims.emplace_back(draw::Line{ compass_tick_i[2], compass_tick_i[3], compass_color_l, 1 });
 }
 
-void TFlowTrackerDashboard::rollInitRender()
+void TFlowInstrumentMilesi::renderCamera(std::vector<draw::Prim> &prims, float camera_angl_rad)
 {
-    fig_roll = Mat(1, 18, CV_32FC2);
-    fig_roll_tr = Mat(1, 18, CV_32FC2);
+    float af_sin = sin(camera_angl_rad);
+    float af_cos = cos(camera_angl_rad);
+    rot_tr.at<double>(0) = af_cos;
+    rot_tr.at<double>(1) = -af_sin;
 
-    /*     5    4   2 1 |
-    *      -----.   .-    -.   .------
-    *            \ /        \ /
-    *             `          `
-    *             3
-    *
-    */
+    rot_tr.at<double>(3) = af_sin;
+    rot_tr.at<double>(4) = af_cos;
 
-    /* Static
-    *
+    vect_transform_transl(rot_tr, instr_center, camera_arc      , camera_arc_tr      , camera_arc_i      );
+    vect_transform_transl(rot_tr, instr_center, camera_arrow    , camera_arrow_tr    , camera_arrow_i    );
+    vect_transform_transl(rot_tr, instr_center, camera_lens_up  , camera_lens_up_tr  , camera_lens_up_i  );
+    vect_transform_transl(rot_tr, instr_center, camera_lens_bott, camera_lens_bott_tr, camera_lens_bott_i);
 
-    *      -- .  +  . --
-    *        ' /    \ '
-    *
-    */
-#define ROLL_SH    6.f    // 
-#define ROLL_TOP   0.f     
-#define ROLL_BOT   17.f     
-
-    // Left wing
-    fig_roll.at<Point2f>(0) = Point2f(-ROLL_SH * 1, ROLL_TOP);
-    fig_roll.at<Point2f>(1) = Point2f(-ROLL_SH * 2.5, ROLL_TOP);
-    fig_roll.at<Point2f>(2) = Point2f(-ROLL_SH * 2.5, ROLL_TOP);
-    fig_roll.at<Point2f>(3) = Point2f(-ROLL_SH * 4.5, ROLL_BOT);
-    fig_roll.at<Point2f>(4) = Point2f(-ROLL_SH * 4.5, ROLL_BOT);
-    fig_roll.at<Point2f>(5) = Point2f(-ROLL_SH * 6.5, ROLL_TOP);
-    fig_roll.at<Point2f>(6) = Point2f(-ROLL_SH * 6.5, ROLL_TOP);
-    fig_roll.at<Point2f>(7) = Point2f(-ROLL_SH * 12, ROLL_TOP);
-
-    // Right wing
-    fig_roll.at<Point2f>(8) = Point2f(+ROLL_SH * 1, ROLL_TOP);
-    fig_roll.at<Point2f>(9) = Point2f(+ROLL_SH * 2.5, ROLL_TOP);
-    fig_roll.at<Point2f>(10) = Point2f(+ROLL_SH * 2.5, ROLL_TOP);
-    fig_roll.at<Point2f>(11) = Point2f(+ROLL_SH * 4.5, ROLL_BOT);
-    fig_roll.at<Point2f>(12) = Point2f(+ROLL_SH * 4.5, ROLL_BOT);
-    fig_roll.at<Point2f>(13) = Point2f(+ROLL_SH * 6.5, ROLL_TOP);
-    fig_roll.at<Point2f>(14) = Point2f(+ROLL_SH * 6.5, ROLL_TOP);
-    fig_roll.at<Point2f>(15) = Point2f(+ROLL_SH * 12, ROLL_TOP);
-
-    // Rudder
-    fig_roll.at<Point2f>(16) = Point2f(0, -ROLL_SH);        
-    fig_roll.at<Point2f>(17) = Point2f(0, -ROLL_SH * 4);
-
-#define TICKS_NUM 8
-    float tick_angles[TICKS_NUM] = { 180, 195, 210, 225,  0, -15, -30, -45 };
-    float tick_size[TICKS_NUM] = { 10,    5,  10,   5, 10,   5,  10,   5 };
-
-    fig_roll_static = Mat(1, TICKS_NUM * 2, CV_32FC2);
-
-    Mat tick_tr = Mat(2, 3, CV_64FC1);
-    tick_tr.at<double>(2) = 0;
-    tick_tr.at<double>(5) = 0;
-
-    Mat fig_tick = Mat(1, 2, CV_32FC2);
-
-    for (int i = 0; i < TICKS_NUM; i++) {
-
-        fig_tick.at<Point2f>(0) = Point2f(ROLL_SH * 10.f, 0.f);
-        fig_tick.at<Point2f>(1) = Point2f(ROLL_SH * 10.f + tick_size[i], 0.f);
-
-        float af_sin = sin((float)DEG2RAD(tick_angles[i]));
-        float af_cos = cos((float)DEG2RAD(tick_angles[i]));
-        tick_tr.at<double>(0) = af_cos;
-        tick_tr.at<double>(1) = af_sin;
-
-        tick_tr.at<double>(3) = -af_sin;
-        tick_tr.at<double>(4) = af_cos;
-
-        transform(fig_tick, fig_tick, tick_tr);
-        fig_roll_static.at<Point2f>(2 * i + 0) = fig_tick.at<Point2f>(0);
-        fig_roll_static.at<Point2f>(2 * i + 1) = fig_tick.at<Point2f>(1);
-    }
+    drawPolyLine(prims, camera_arc_i      , camera_color_d, 2);
+    drawPolyLine(prims, camera_lens_up_i  , camera_color_d, 2);
+    drawPolyLine(prims, camera_lens_bott_i, camera_color_d, 2);
+    prims.emplace_back(draw::Poly{ camera_arrow_i, camera_color_l, 1 });
+    drawPolyLine(prims, camera_arrow_i, camera_color_d, 2);
 }
 
-void TFlowTrackerDashboard::compassInitRender()
+void TFlowInstrumentMilesi::renderRoll(std::vector<draw::Prim> &prims, float roll_angl_rad)
 {
-#define COMPASS_C_OFFSET 105.f      // Center
+    // Rotate the Arc and the Arrow
+    float af_sin = sin(roll_angl_rad);
+    float af_cos = cos(roll_angl_rad);
+    rot_tr.at<double>(0) = af_cos;
+    rot_tr.at<double>(1) = -af_sin;
 
-    // YAW - just line
-    fig_compass_raw = Mat(1, 4, CV_32FC2);
-    fig_compass_raw_tr = Mat(1, 4, CV_32FC2);
+    rot_tr.at<double>(3) = af_sin;
+    rot_tr.at<double>(4) = af_cos;
 
-    fig_compass_raw.at<Point2f>(0) = Point2f(0, -COMPASS_C_OFFSET + 5);
-    fig_compass_raw.at<Point2f>(1) = Point2f(0, -COMPASS_C_OFFSET - 10);
-    fig_compass_raw.at<Point2f>(2) = Point2f(0, COMPASS_C_OFFSET - 10);
-    fig_compass_raw.at<Point2f>(3) = Point2f(0, COMPASS_C_OFFSET + 10);
+    vect_transform_transl(rot_tr, instr_center, roll_box, roll_box_tr, roll_box_i );
+    vect_transform_transl(Mat(), instr_center, roll_arc, roll_arc_tr, roll_arc_i );
+
+    drawPolyLine(prims, roll_arc_i, roll_color_d, 2);
+    prims.emplace_back(draw::Poly{ roll_box_i, roll_color_l, 1 });
+    drawPolyLine(prims, roll_box_i, roll_color_d, 2);
 }
 
-void TFlowTrackerDashboard::instrRenderRoll(vector<draw::Prim>& prims, const Point2f &center, float roll_rad)
+void TFlowInstrumentMilesi::render(std::vector<draw::Prim> &prims, 
+    const TFlowImu::imu_milesi_v0 &imu)
 {
-    Point2f lbl_off = Point2f(-20.f, -20.f);
-    Point2f off = Point2f(1.f, 1.f);
-    Mat roll_tr = Mat(2, 3, CV_64FC1);
+    renderCompass(prims, imu.yaw);    
+    renderRoll(prims, imu.roll);    
+    renderPitch(prims, imu.pitch);    
+    renderCamera(prims, 0.f);    
+}
+void TFlowInstrumentMilesi::renderPitch(std::vector<draw::Prim> &prims, float pitch_angl_rad) 
+{
+    pitch_angl_rad = -pitch_angl_rad;
+    // Rotate the Arc and the Arrow
+    float af_sin = sin(pitch_angl_rad);
+    float af_cos = cos(pitch_angl_rad);
+    rot_tr.at<double>(0) = af_cos;
+    rot_tr.at<double>(1) = -af_sin;
 
-    float af_sin = sin(roll_rad);
-    float af_cos = cos(roll_rad);
-    roll_tr.at<double>(0) = af_cos;
-    roll_tr.at<double>(1) = af_sin;
-    roll_tr.at<double>(2) = 0;
+    rot_tr.at<double>(3) = af_sin;
+    rot_tr.at<double>(4) = af_cos;
 
-    roll_tr.at<double>(3) = -af_sin;
-    roll_tr.at<double>(4) = af_cos;
-    roll_tr.at<double>(5) = 0;
+    vect_transform_transl(rot_tr, instr_center, pitch_arc  , pitch_arc_tr  , pitch_arc_i);
+    vect_transform_transl(rot_tr, instr_center, pitch_arrow, pitch_arrow_tr, pitch_arrow_i  );
 
-    transform(fig_roll, fig_roll_tr, roll_tr);
+    vect_shadow(off_2i, pitch_arc_i, pitch_arc_i_sh);
 
-    for (int i = 0; i < fig_roll_tr.cols; i += 2) {
-        prims.emplace_back(draw::Line{
-            center + fig_roll_tr.at<Point2f>(i),
-            center + fig_roll_tr.at<Point2f>(i + 1),
-            red,           // Color
-            1,              // Thickness
-            cv::LINE_8,     // Line type
-            0 });           // Shift
-    }
+    // Pitch arc - aka servo rail, i.e. range of angles what can take the camera.
+    // On Milesi it is +/- 90degrees.
+    drawPolyLine(prims, pitch_arc_i, pitch_color_d, 2);
+    drawPolyLine(prims, pitch_arc_i_sh, white, 1);
 
-    {
-        char roll_str[8] = "";
-        snprintf(roll_str, sizeof(roll_str), "%4d", (int)rint(RAD2DEG(roll_rad)));
-        String label_roll = String(roll_str);
+    // Stoppers - max. pitch angles marks
+    prims.insert(prims.end(), 
+        pitch_instr_prims_stoppers.cbegin(), pitch_instr_prims_stoppers.cend());
 
-        prims.emplace_back(draw::Text{          // TEXT primitive
-                    label_roll,                 // Text
-                    center + lbl_off,           // Position (a cv::Point)
-                    cv::FONT_HERSHEY_PLAIN,     // Font
-                    1.2,                        // Scale (size)
-                    red,                        // Color
-                    1,                          // Thickness
-                    cv::LINE_AA,                // Line type
-                    false                       // Bottom left origin flag
-            });
-/*
-        prims.emplace_back(draw::Text{          // TEXT primitive
-                    label_roll,                 // Text
-                    center + lbl_off + off,     // Position (a cv::Point)
-                    cv::FONT_HERSHEY_PLAIN,     // Font
-                    1.2,                        // Scale (size)
-                    coral,                      // Color
-                    1,                          // Thickness
-                    cv::LINE_AA,                // Line type
-                    false                       // Bottom left origin flag
-            });
-*/
-    }
-
-    for (int i = 0; i < fig_roll_static.cols; i += 2) {
-        prims.emplace_back(draw::Line{
-            center + fig_roll_static.at<Point2f>(i),
-            center + fig_roll_static.at<Point2f>(i + 1),
-            orange,         // Color
-            1,              // Thickness
-            cv::LINE_AA,    // Line type
-            0 });           // Shift
-    }
-
-
+    // Arrow (triangle) - current pitch value
+    prims.emplace_back(draw::Poly{ pitch_arrow_i, pitch_color_l, 1 });  // Arrow fill
+    drawPolyLine(prims, pitch_arrow_i, pitch_color_d, 2);               // Arrow contour 
 }
 
-void TFlowTrackerDashboard::instrRenderPitch(vector<draw::Prim>& prims, const Point2f& center, float pitch_rad)
+void TFlowInstrumentMilesi::initPitch()
 {
-    Point2f lbl_off = Point2f(PITCH_SH * 16, 0.f);
-    Mat pitch_tr = Mat(2, 3, CV_64FC1);
-                              
-    int pitch_deg = (int)round(RAD2DEG(pitch_rad));
-    int pitch_min = pitch_deg % PITCH_SV_DEG_MAJ;
-    int pitch_min_tick = (pitch_min >= 0) ? pitch_min : pitch_min + PITCH_SV_DEG_MAJ;
-    float pitch_off_lbl  = ((float)pitch_min / PITCH_SV_DEG_MIN * PITCH_SV);
-    int pitch_maj = pitch_deg - pitch_min;
+    pitch_color_l = cv::Scalar{ 223,  238, 234 };
+    pitch_color_d = cv::Scalar{   0,  128,   0 };
+    pitch_color_h = cv::Scalar{  51,  204,  51 };
+
+    rot_tr = Mat(2, 3, CV_64FC1);
+    rot_tr.at<double>(0) = 1;
+    rot_tr.at<double>(1) = 0;
+    rot_tr.at<double>(2) = 0;
+
+    rot_tr.at<double>(3) = 0;
+    rot_tr.at<double>(4) = 1;
+    rot_tr.at<double>(5) = 0;
+
+    createCircle(pitch_arc, MILESI_INSTR_R_PITCH, (float)RAD_NORM(DEG2RAD(+90)), (float)RAD_NORM(DEG2RAD(-90)), 180);
+    pitch_arc_tr   = std::vector<Point2f>(pitch_arc.size());
+    pitch_arc_i    = std::vector<Point2i>(pitch_arc.size());
+    pitch_arc_i_sh = std::vector<Point2i>(pitch_arc.size());
+
+    float s = MILESI_INSTR_PITCH_ARR_SIZE;
+    float t = MILESI_INSTR_PITCH_TAIL_SIZE;
+    float r = MILESI_INSTR_R_PITCH;
+    pitch_arrow    = std::vector<cv::Point2f>(8);
+    pitch_arrow_tr = std::vector<cv::Point2f>(8);
+    pitch_arrow_i  = std::vector<cv::Point2i>(8);
+    pitch_arrow[0].x = 5 + r - s/2;          pitch_arrow[0].y = -s * 0.8f;
+    pitch_arrow[1].x = 5 + r - s/2;          pitch_arrow[1].y = -s * 0.8f + 5;
+    pitch_arrow[2].x = 5 + r - s/2;          pitch_arrow[2].y = +s * 0.8f - 5;
+    pitch_arrow[3].x = 5 + r - s/2;          pitch_arrow[3].y = +s * 0.8f;
+
+    pitch_arrow[4].x = 5 + r + s * 0.7f;     pitch_arrow[4].y = 0;
+    pitch_arrow[5].x = 5 + r + s * 0.7f + t; pitch_arrow[5].y = 0;
+    pitch_arrow[6].x = 5 + r + s * 0.7f;     pitch_arrow[6].y = 0;
+    pitch_arrow[7].x = 5 + r - s/2;          pitch_arrow[7].y = -s * 0.8f;
+
+    float stop_up_sin = (float)sin(DEG2RAD(45));
+    float stop_up_cos = (float)cos(DEG2RAD(45));
+
+    std::vector<cv::Point2f> pitch_stop_up;
+    std::vector<cv::Point2f> pitch_stop_up_tr;
+    std::vector<cv::Point2i> pitch_stop_up_i;
+
+    std::vector<cv::Point2f> pitch_stop_bott;
+    std::vector<cv::Point2f> pitch_stop_bott_tr;
+    std::vector<cv::Point2i> pitch_stop_bott_i;
+
+    pitch_stop_up    = std::vector<cv::Point2f>(3);
+    pitch_stop_up_tr = std::vector<cv::Point2f>(3);
+    pitch_stop_up_i  = std::vector<cv::Point2i>(3);
+    pitch_stop_up[0] = point2f_rot(pitch_arrow[6], -stop_up_sin, stop_up_cos);
+    pitch_stop_up[1] = point2f_rot(pitch_arrow[0], -stop_up_sin, stop_up_cos);
+    pitch_stop_up[2] = point2f_rot(pitch_arrow[1], -stop_up_sin, stop_up_cos);
+
+    pitch_stop_bott    = std::vector<cv::Point2f>(3);
+    pitch_stop_bott_tr = std::vector<cv::Point2f>(3);
+    pitch_stop_bott_i  = std::vector<cv::Point2i>(3);
+    pitch_stop_bott[0] = point2f_rot(pitch_arrow[4], stop_up_sin, stop_up_cos);
+    pitch_stop_bott[1] = point2f_rot(pitch_arrow[3], stop_up_sin, stop_up_cos);
+    pitch_stop_bott[2] = point2f_rot(pitch_arrow[2], stop_up_sin, stop_up_cos);
+
+    // Stoppers are not moved thus can be stored as primitives
+    vect_transform_transl(Mat() , instr_center, pitch_stop_up  , pitch_stop_up_tr  , pitch_stop_up_i  );
+    vect_transform_transl(Mat() , instr_center, pitch_stop_bott, pitch_stop_bott_tr, pitch_stop_bott_i);
     
-    if (pitch_min < 0) {
-        pitch_maj -= PITCH_SV_DEG_MAJ;
-        pitch_off_lbl += 2 * PITCH_SV;
+    pitch_instr_prims_stoppers.clear();
+ 
+    drawPolyLine(pitch_instr_prims_stoppers, pitch_stop_up_i  , pitch_color_d, 2);
+    drawPolyLine(pitch_instr_prims_stoppers, pitch_stop_bott_i, pitch_color_d, 2);
+    
+    vect_shadow(off_2i, pitch_stop_up_i, pitch_stop_up_i);
+    vect_shadow(off_2i, pitch_stop_bott_i, pitch_stop_bott_i);
+    drawPolyLine(pitch_instr_prims_stoppers, pitch_stop_up_i  , white, 1);
+    drawPolyLine(pitch_instr_prims_stoppers, pitch_stop_bott_i, white, 1);
+}
+
+void TFlowInstrumentMilesi::initRoll()
+{
+    roll_color_l  = cv::Scalar{ 255, 232, 247};
+    roll_color_d  = cv::Scalar{ 160,  48, 112};
+    roll_color_h  = cv::Scalar{ 245, 112, 222};
+
+    createCircle(roll_arc, MILESI_INSTR_R_ROLL, (float)RAD_NORM(DEG2RAD(150)), (float)RAD_NORM(DEG2RAD(30)), 60);
+    roll_arc_tr = std::vector<Point2f>(roll_arc.size());
+    roll_arc_i  = std::vector<Point2i>(roll_arc.size());
+
+    float w = MILESI_INSTR_ROLL_BOX_W;
+    float h = MILESI_INSTR_ROLL_BOX_H;
+    float r = MILESI_INSTR_R_ROLL;
+    roll_box    = std::vector<cv::Point2f>(5);
+    roll_box_tr = std::vector<cv::Point2f>(5);
+    roll_box_i  = std::vector<cv::Point2i>(5);
+    roll_box[0].x = 0 - w/2.f; roll_box[0].y = -r + 2 + h/2;
+    roll_box[1].x = 0 - w/2.f; roll_box[1].y = -r + 2 - h/2;
+    roll_box[2].x = 0 + w/2.f; roll_box[2].y = -r + 2 - h/2;
+    roll_box[3].x = 0 + w/2.f; roll_box[3].y = -r + 2 + h/2;
+    roll_box[4].x = 0 - w/2.f; roll_box[4].y = -r + 2 + h/2;
+}
+
+void TFlowInstrumentMilesi::initCamera()
+{
+    camera_color_l = cv::Scalar{ 202, 224, 248 };
+    camera_color_d = cv::Scalar{   0,   0, 192 };
+    camera_color_h = cv::Scalar{   0,   0, 255 };
+
+    // TODO: Get lens apperture from config
+    // ...
+    float hfov_rad = DEG2RAD(MILESI_INSTR_LENS_FOV / 2);
+    createCircle(camera_arc, MILESI_INSTR_R_CAM, hfov_rad, -hfov_rad, 180);
+    camera_arc_tr = std::vector<Point2f>(camera_arc.size());
+    camera_arc_i  = std::vector<Point2i>(camera_arc.size());
+
+    float lens_sin = (float)sin(hfov_rad);
+    float lens_cos = (float)cos(hfov_rad);
+
+    camera_lens_up    = std::vector<cv::Point2f>(2);
+    camera_lens_up_tr = std::vector<cv::Point2f>(2);
+    camera_lens_up_i  = std::vector<cv::Point2i>(2);
+    camera_lens_up[0] = camera_arc[0];
+    camera_lens_up[1] = point2f_rot(Point2f(MILESI_INSTR_R_LENS, 0), -lens_sin, lens_cos);
+
+    camera_lens_bott    = std::vector<cv::Point2f>(2);
+    camera_lens_bott_tr = std::vector<cv::Point2f>(2);
+    camera_lens_bott_i  = std::vector<cv::Point2i>(2);
+    camera_lens_bott[0] = *(camera_arc.end() - 1);
+    camera_lens_bott[1] = point2f_rot(Point2f(MILESI_INSTR_R_LENS, 0), lens_sin, lens_cos);
+
+    float s = MILESI_INSTR_CAMERA_ARR_SIZE;
+    float t = MILESI_INSTR_CAMERA_TAIL_SIZE;
+    float r = MILESI_INSTR_R_CAM;
+    camera_arrow    = std::vector<cv::Point2f>(8);
+    camera_arrow_tr = std::vector<cv::Point2f>(8);
+    camera_arrow_i  = std::vector<cv::Point2i>(8);
+    camera_arrow[0].x = -3 + r - s/2;          camera_arrow[0].y = -s * 0.8f;
+    camera_arrow[1].x = -3 + r - s/2;          camera_arrow[1].y = -s * 0.8f + 5;
+    camera_arrow[2].x = -3 + r - s/2;          camera_arrow[2].y = +s * 0.8f - 5;
+    camera_arrow[3].x = -3 + r - s/2;          camera_arrow[3].y = +s * 0.8f;
+
+    camera_arrow[4].x = -3 + r + s * 0.7f;     camera_arrow[4].y = 0;
+    camera_arrow[5].x = -3 + r + s * 0.7f + t; camera_arrow[5].y = 0;
+    camera_arrow[6].x = -3 + r + s * 0.7f;     camera_arrow[6].y = 0;
+    camera_arrow[7].x = -3 + r - s/2;          camera_arrow[7].y = -s * 0.8f;
+}
+
+void TFlowInstrumentMilesi::initCompass()
+{
+    compass_color_l  = cyan;
+    compass_color_d  = blue;
+    compass_color_h  = white;
+
+    float s = MILESI_INSTR_COMPASS_N_SIZE;
+    float t = MILESI_INSTR_COMPASS_TICK_SIZE;
+    float r = MILESI_INSTR_R_YAW;
+    compass_North    = std::vector<cv::Point2f>(8);
+    compass_North_tr = std::vector<cv::Point2f>(8);
+    compass_North_i  = std::vector<cv::Point2i>(8);
+    compass_North[0].x = 0 - s/3.f; compass_North[0].y = -r + 5 + s;
+    compass_North[1].x = 0 - s/3.f; compass_North[1].y = -r + 5;
+    compass_North[2].x = 0 + s/3.f; compass_North[2].y = -r + 5 + s;
+    compass_North[3].x = 0 + s/3.f; compass_North[3].y = -r + 5;
+
+    compass_North[4] = compass_North[0] + off_2f;
+    compass_North[5] = compass_North[1] + off_2f;
+    compass_North[6] = compass_North[2] + off_2f;
+    compass_North[7] = compass_North[3] + off_2f;
+
+    compass_tick    = std::vector<cv::Point2f>(4);
+    compass_tick_tr = std::vector<cv::Point2f>(4);
+    compass_tick_i  = std::vector<cv::Point2i>(4);
+    compass_tick[0] = Point2f(0, - r + t/2);
+    compass_tick[1] = Point2f(0, - r - t/2);
+    compass_tick[2] = compass_tick[0] + off_2f;
+    compass_tick[3] = compass_tick[1] + off_2f;
+}
+
+void TFlowInstrumentMilesi::init()
+{
+    initPitch();
+    initRoll();
+    initCamera();
+    initCompass();
+
+}
+
+TFlowInstrumentMilesi::TFlowInstrumentMilesi(cv::Point2i _center) :
+    instr_center(_center)
+
+{
+    init();
+}
+
+void TFlowInstrumentMilesi::vect_shadow(cv::Point2i off, 
+    const std::vector<cv::Point2i>& x, std::vector<cv::Point2i>& x_sh) 
+{
+    assert(x.size() == x_sh.size());
+    for (int i = 0; i < x.size(); i++) {
+        x_sh.at(i) = x.at(i) + off;
     }
+}
 
-    lbl_off.y = lbl_off.y + pitch_off_lbl - (4 * PITCH_SV);
+void TFlowInstrumentMilesi::vect_transform_transl(const cv::Mat &tr, cv::Point2i off,
+    const std::vector<cv::Point2f> &x, std::vector<Point2f> &x_tr, 
+    std::vector<cv::Point2i> &y_out)
+{
+    // Rotates, Translates and Converts Point2f vector to integers.
+    // Use Mat() to skip rotation.
 
-    float pitch_off_tick = ((float)pitch_min_tick / PITCH_SV_DEG_MIN * PITCH_SV);
-
-    pitch_tr.at<double>(0) = 1;
-    pitch_tr.at<double>(1) = 0;
-    pitch_tr.at<double>(2) = 0;
-
-    pitch_tr.at<double>(3) = 0;
-    pitch_tr.at<double>(4) = 1;
-    pitch_tr.at<double>(5) = pitch_off_tick;
-             
-    transform(fig_pitch, fig_pitch_tr, pitch_tr);
-
-    for (int i = 0; i < fig_pitch_tr.cols; i += 2) {
-
-        if (fig_pitch_tr.at<Point2f>(i).y < PITCH_TOP + (2 * PITCH_SV)) continue;
-
-        prims.emplace_back(draw::Line{
-            center + fig_pitch_tr.at<Point2f>(i),
-            center + fig_pitch_tr.at<Point2f>(i + 1),
-            green,          // Color
-            1,              // Thickness
-            cv::LINE_AA,    // Line type
-            0 });           // Shift
-
+    int i = 0;
+    if (tr.empty()) {
+        x_tr = x;
     }
-
-    float zero_off = ((float)pitch_deg / PITCH_SV_DEG_MIN * PITCH_SV);
-    if (zero_off > PITCH_TOP && zero_off < PITCH_BOT) {
-        auto zero_line_l = Point2f(-PITCH_SH * 14, zero_off);
-        auto zero_line_r = Point2f(+PITCH_SH * 13, zero_off);
-        prims.emplace_back(draw::Line{
-            center + zero_line_l,
-            center + zero_line_r,
-            green,          // Color
-            1,              // Thickness
-            cv::LINE_AA,    // Line type
-            0 });           // Shift
+    else {
+        transform(x, x_tr, tr);
     }
-
-    int tick_label = pitch_maj + PITCH_SV_DEG_MAJ * ((PITCH_TICKS_NUM - 3) / 4);   // Number of major tick at one side
-    for (int i = 0; i < PITCH_TICKS_NUM / 2; i++) {
-        char pitch_str[16] = "";
-        snprintf(pitch_str, sizeof(pitch_str), "%3d", abs(tick_label));
-        String label_pitch = String(pitch_str);
-
-        prims.emplace_back(draw::Text{          // TEXT primitive
-                    label_pitch,              // Text
-                    center + lbl_off,           // Position (a cv::Point)
-                    cv::FONT_HERSHEY_PLAIN,     // Font
-                    1.2,                        // Scale (size)
-                    green,                       // Color
-                    1,                          // Thickness
-                    cv::LINE_AA,                // Line type
-                    false                       // Bottom left origin flag
-            });
-        tick_label -= 2 * PITCH_SV_DEG_MIN;
-        lbl_off.y += (PITCH_SV * 2);
+    for (auto x_f : x_tr) {
+        y_out.at(i++) = Point2i(lround(x_f.x), lround(x_f.y)) + off;
     }
+}
 
-    for (int i = 0; i < fig_pitch_static.cols; i += 2) {
-        prims.emplace_back(draw::Line{
-            center + fig_pitch_static.at<Point2f>(i),
-            center + fig_pitch_static.at<Point2f>(i + 1),
-            green,          // Color
-            1,              // Thickness
-            cv::LINE_AA,    // Line type
-            0 });           // Shift
+cv::Point2f TFlowInstrumentMilesi::point2f_rot(const cv::Point2f& p, float sinAf, float cosAf)
+{
+    return Point2f(p.x * cosAf - p.y * sinAf, (p.y * cosAf + p.x * sinAf));
+}
+
+void TFlowInstrumentMilesi::drawPolyLine(std::vector<draw::Prim>& prims, 
+    std::vector<cv::Point2i>::const_iterator poly_line_it, size_t points_num, 
+    cv::Scalar color, int thickness)
+{
+    if (points_num < 2) return;
+
+    for (int i = 0; i < points_num - 1; i++) {
+        auto &p1 = *poly_line_it++;
+        auto &p2 = *poly_line_it;
+        prims.emplace_back(draw::Line { p1, p2, color, thickness}); 
     }
 
 }
 
-void TFlowTrackerDashboard::instrRenderCompass(vector<draw::Prim>& prims, const Point2f& center)
+void TFlowInstrumentMilesi::drawPolyLine(std::vector<draw::Prim>& prims, 
+    const std::vector<cv::Point2i> &poly_line, cv::Scalar color, int thickness)
 {
-    int radius;
-    radius = 100;
+    drawPolyLine(prims, poly_line.begin(), poly_line.size(), color, thickness);
+}
 
-    Point2f off = Point2f(1.f, 1.f);
-
-    // Fixed Circle
-    prims.emplace_back(draw::Circle{center, radius, blue});
-    prims.emplace_back(draw::Circle{center + off, radius, white});
-
-    if (isfinite(imu.yaw)) {
-        compassRenderYaw(prims, center, (float)DEG2RAD(imu.yaw));
+void TFlowInstrumentMilesi::drawPolyLine(std::vector<draw::Prim>& prims, 
+    const std::vector<cv::Point2f>& poly_line, cv::Scalar color, int thickness)
+{
+    if (poly_line.size() < 2) {
+        return;
     }
 
-}
-
-void TFlowTrackerDashboard::instrRenderAltitude(vector<draw::Prim>& prims, const Point2f& center, float alt_baro)
-{
-    Point2f lbl_off = Point2f(+10.f, 130.f);
-
-    char alt_str[32] = "";
-
-    snprintf(alt_str, sizeof(alt_str), "ALT: %3.1f[m]", alt_baro);
-    alt_str[sizeof(alt_str)-1] = 0;
-    String label_alt = String(alt_str);
-
-    prims.emplace_back(draw::Text{          // TEXT primitive
-                label_alt,                  // Text
-                center + lbl_off,           // Position (a cv::Point)
-                cv::FONT_HERSHEY_PLAIN,     // Font
-                0.8,                        // Scale (size)
-                green });
-}
-
-void TFlowTrackerDashboard::compassRenderYaw(vector<draw::Prim>& prims, const Point2f& center, float yaw)
-{
-
-    Point2f off = Point2f(1.f, 0.5f);
-    Mat compass_tr = Mat(2, 3, CV_64FC1);
-
-    float af_sin = sin(yaw);
-    float af_cos = cos(yaw);
-    compass_tr.at<double>(0) = af_cos;
-    compass_tr.at<double>(1) = -af_sin;
-    compass_tr.at<double>(2) = 0;
-
-    compass_tr.at<double>(3) = af_sin;
-    compass_tr.at<double>(4) = af_cos;
-    compass_tr.at<double>(5) = 0;
-
-    transform(fig_compass_raw, fig_compass_raw_tr, compass_tr);
-
-    for (int i = 0; i < fig_compass_raw_tr.cols; i += 2) {
-        prims.emplace_back(draw::Line{
-            center + fig_compass_raw_tr.at<Point2f>(i),
-            center + fig_compass_raw_tr.at<Point2f>(i + 1),
-            yellow,          // Color
-            1,              // Thickness
-            cv::LINE_AA,    // Line type
-            0 });           // Shift
+    for (int i = 0; i < poly_line.size() - 1; i++) {
+        prims.emplace_back(draw::Line {     // Line primitive
+                {(int)lround(poly_line[i + 0].x), (int)lround(poly_line[i + 0].y)},
+                {(int)lround(poly_line[i + 1].x), (int)lround(poly_line[i + 1].y)},
+                color, thickness}); 
     }
-
 }
 
-void TFlowTrackerDashboard::instrUpdate(
-    const TFlowImu& in_imu)
+
+void TFlowInstrumentMilesi::createCircle(std::vector<cv::Point2f> &circle, 
+    float radius, float start_rad, float end_rad, int segments_num_full)
 {
-    imu = in_imu;
-    instr_refresh = 1;
+#if 0
+    Output vector is a set of points of segment 's'
+    s1 = line[circ[0], circ[1]]
+    s2 = line[circ[1], circ[2]]
+        
+               Draw direction - Clockwise
+      _----_    +Angle
+    +        +
+   |     .---= 0
+ sn +        +
+     +- _ -+    -Angle
+
+#endif
+    
+    // Denorm
+    if (start_rad < 0) start_rad = (float)(2* M_PI + start_rad);
+    if (end_rad < 0) end_rad = (float)(2* M_PI + end_rad);
+
+    float start_sin = sin(start_rad);
+    float start_cos = cos(start_rad);
+
+
+    Point2f start_point = Point2f(radius, 0);
+    start_point = point2f_rot(start_point, -start_sin, start_cos);
+
+    float segment_rad = (float)(2 * M_PI / segments_num_full);
+    float seg_sin = sin(segment_rad);
+    float seg_cos = cos(segment_rad);
+
+    float d_rad = (start_rad - end_rad);
+    if (d_rad < 0) d_rad += (float)(2*M_PI);
+    int segments_num = (int)lround(segments_num_full * ( d_rad / (2 * M_PI)));
+
+    // Get segment sector in radians
+    circle.clear();
+    cv::Point2f next_point = start_point;
+    for (int i = 0; i < segments_num; i++) {
+        circle.emplace_back(next_point);
+        next_point = point2f_rot(next_point, seg_sin, seg_cos);
+    }
+//    circle.emplace_back(circ_point);
+
 }
 
 void TFlowTrackerDashboard::render()
 {
     if (frameMain.empty()) return;
 
-#if 0
-    if (instr_refresh) {
-        instr_refresh = 0;
-
-        instr_prims.clear();
-        instrRender();
-    }
-#endif
+    instrRender();
 
     // As frameMainY and frameMainUV always create in pair, thus check Y Mat only.
     if (!frameMainY.empty()) {
-        draw::render(frameMainY, frameMainUV, instr_prims);
+        draw::render(frameMainY, frameMainUV, render_prims);
     }
 
 #if OFFLINE_PROCESS
@@ -554,18 +602,9 @@ void TFlowTrackerDashboard::render()
 
 void TFlowTrackerDashboard::instrRender()
 {
-    Point2f center1 = Point2f(150.f, 400.f);    // 150x150
-    Point2f center2 = Point2f(500.f, 120.f);
+    const TFlowImu::imu_milesi_v0 &imu = trck->imu.ap_imu;
 
-    instrRenderCompass(instr_prims, center1);
-
-    float ap_imu_roll  = (float)DEG2RAD(imu.roll);
-    float ap_imu_pitch = (float)DEG2RAD(imu.pitch);
-
-    if (isfinite(ap_imu_roll)) instrRenderRoll(instr_prims, center1, ap_imu_roll);
-    if (isfinite(ap_imu_pitch)) instrRenderPitch(instr_prims, center1, ap_imu_pitch);
-
-    instrRenderAltitude(instr_prims, center1, (float)imu.altitude_baro);
+    instrMilesi.render(render_prims, imu);
 }
 
 void TFlowTrackerDashboard::getDashboardFrameSize(int *w, int *h)
@@ -662,7 +701,7 @@ static void drawGrid(const cv::Rect2f &rect2f, const cv::Scalar &color, vector<d
         color, 1} );
 }
 
-void TFlowTrackerDashboard::renderGrid(vector<draw::Prim>& prims)
+void TFlowTrackerDashboard::renderGrid(std::vector<draw::Prim>& prims)
 {
 }
 
@@ -804,3 +843,4 @@ void TFlowTrackerDashboard::onConfig(const json11::Json& j_in_params,
         }
     }
 }
+
