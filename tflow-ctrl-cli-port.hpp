@@ -32,7 +32,7 @@ private:
     int sendResp(const char *cmd, int err, const json11::Json::object& j_resp_params);
     IOSourcePtr sck_src;
 
-    size_t in_udp_msg_size;
-    char* in_udp_msg;
+    size_t in_msg_size;
+    char* in_msg;
 
 };

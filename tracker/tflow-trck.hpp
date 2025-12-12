@@ -82,16 +82,7 @@ public:
 class TFlowTargeting {
 
 public:
-    TFlowTargeting(const cv::Size &_frame_size) : frame_size(_frame_size)
-    {
-        is_valid = 0;
-
-        targeting_en = 0;
-        cursor_x = 0.5f;
-        cursor_y = 0.5f;
-        butt_event = 0;
-        butt_event_id = -1;
-    }
+    TFlowTargeting(const cv::Size &_frame_size);
 
 #pragma pack(push, 1)
     struct targeting_input_v1 {
@@ -113,7 +104,6 @@ public:
     int getMode();  // return current mode  0 - disabled; 1 - start; 2 - enabled; 3 - finalize
     uint16_t getEvent();
 
-
     // Last reported by getter
     int last_targeting_en;
     int last_butt_event;
@@ -121,6 +111,18 @@ public:
    
     int cursor_x;
     int cursor_y;
+
+    float res_roll;
+    float res_pitch;
+    float res_yaw;
+    float res_throttle;
+
+    float res_assisted_roll;
+    float res_assisted_pitch;
+    float res_assisted_yaw;
+    float res_assisted_throttle;
+
+    void mixUserCtrl(const TFlowUserctrl::jstk_ctrl &jstk, int is_valid);
 
 private:
 
@@ -131,6 +133,7 @@ private:
     int targeting_en;
     int butt_event;
     int butt_event_id;
+
 };
 
 class TFlowTracker : public TFlowAlgo {

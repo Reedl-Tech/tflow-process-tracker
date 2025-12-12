@@ -19,9 +19,9 @@ TFlowCtrlCliPort::~TFlowCtrlCliPort()
         sck_src.reset();
     }
 
-    if (in_udp_msg) {
-        g_free(in_udp_msg);
-        in_udp_msg = nullptr;
+    if (in_msg) {
+        g_free(in_msg);
+        in_msg = nullptr;
     }
 
 }
@@ -31,8 +31,8 @@ TFlowCtrlCliPort::TFlowCtrlCliPort (MainContextPtr context, TFlowCtrlSrv &_srv, 
 {
     sck_fd = fd;
 
-    in_udp_msg_size = 1024 * 1024;
-    in_udp_msg = (char*)g_malloc(in_udp_msg_size);
+    in_msg_size = 1024 * 1024;
+    in_msg = (char*)g_malloc(in_msg_size);
 
     clock_gettime(CLOCK_MONOTONIC, &last_send_ts);
 
@@ -73,8 +73,8 @@ int TFlowCtrlCliPort::sendResp(const char *cmd, int resp_err, const Json::object
     std::string s_msg = j_resp.dump();
         
     res = send(sck_fd, s_msg.c_str(), s_msg.length(), MSG_NOSIGNAL | MSG_DONTWAIT);
-    int err = errno;
     if (res == -1) {
+        int err = errno;
         if (err == EPIPE) {
             g_warning("TFlowCtrlCliPort: Can't send to [%s], %s (%d) - %s",
                 signature.c_str(), cmd, err, strerror(err));
@@ -85,9 +85,12 @@ int TFlowCtrlCliPort::sendResp(const char *cmd, int resp_err, const Json::object
         }
         return -1;
     }
-    g_warning("TFlowCtrlCli: [%s] ->> [%s]  %s",
-        srv.my_name.c_str(),
-        signature.c_str(), cmd);
+
+    PRESC(-1) {
+        g_warning("TFlowCtrlCli: [%s] ->> [%s]  %s",
+            srv.my_name.c_str(),
+            signature.c_str(), cmd);
+    }
 
     clock_gettime(CLOCK_MONOTONIC, &last_send_ts);
 
@@ -133,7 +136,7 @@ gboolean TFlowCtrlCliPort::onMsg(Glib::IOCondition io_cond)
 
 int TFlowCtrlCliPort::onMsgRcv()
 {
-    int res = recv(sck_fd, in_udp_msg, in_udp_msg_size - 1, 0); //MSG_DONTWAIT 
+    int res = recv(sck_fd, in_msg, in_msg_size - 1, 0); //MSG_DONTWAIT 
 
     if (res <= 0) {
         int err = errno;
@@ -147,10 +150,10 @@ int TFlowCtrlCliPort::onMsgRcv()
         }
         return -1;
     }
-    in_udp_msg[res] = 0;
+    in_msg[res] = 0;
 
     std::string j_err;
-    const Json j_in_msg = Json::parse(in_udp_msg, j_err);
+    const Json j_in_msg = Json::parse(in_msg, j_err);
 
     if (j_in_msg.is_null()) {
         g_warning("TFlowCtrlCliPort: [%s] Can't parse input message - %s",
@@ -173,7 +176,7 @@ int TFlowCtrlCliPort::onMsgRcv()
 #if CODE_BROWSE
         TFlowCtrlSrvCapture::onTFlowCtrlMsg();
             TFlowCtrlCapture::cmd_cb_config();
-            TFlowCtrlCapture::cmd_cb_controls();
+            TFlowCtrlCapture::cmd_cb_ui_sign();
 
         TFlowCtrlSrvProcess::onTFlowCtrlMsg();
             TFlowCtrlProcess::cmd_cb_cfg_player();      // for in_cmd == "player"

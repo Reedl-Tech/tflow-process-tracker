@@ -17,7 +17,7 @@
 
 TFlowBufCli::~TFlowBufCli()
 {
-    Close();
+    Disconnect();
 }
 
 int TFlowBufCli::onConsume(std::shared_ptr<TFlowBufPck> sp_pck)
@@ -95,7 +95,7 @@ bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
 
     if (res <= 0) {
         err = errno;
-        if (err == EPIPE || err == ECONNREFUSED || err == ENOENT) {
+        if (err == EPIPE || err == ECONNREFUSED || err == ENOENT || err == EINVAL) {
             // May happens on Server close
             g_warning("TFlowBufCli: TFlow Buffer Server closed");
         }
@@ -106,7 +106,7 @@ bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
 
         sck_state_flag.v = Flag::FALL;
 //AV!!!        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowBufCli::onIdle_no_ts));
-        return G_SOURCE_REMOVE;  
+        return G_SOURCE_REMOVE;
     }
 
     // Sanity
@@ -121,7 +121,7 @@ bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
         /* TODO: If another src already exist, then close it */
         // ...if (app_onSrcGone) app_onSrcGone();
 
-        g_warning("---TFlowBufCli: Received - CAM_FD");
+        g_warning("TFlowBufCli: Received - CAM_FD");
         if (msg.msg_controllen == 0) {
             g_warning("Oooops - Bad aux data");
             return G_SOURCE_CONTINUE;
@@ -129,10 +129,10 @@ bool TFlowBufCli::onMsg(Glib::IOCondition io_cond)
 
         struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
         int cam_fd = *(int*)CMSG_DATA(cmsg);
-        TFlowBufPck::pck_fd *pck_fd = (TFlowBufPck::pck_fd*)&sp_pck->d;
+        TFlowBufPck::pck_fd *pck_src_info = (TFlowBufPck::pck_fd*)&sp_pck->d;
 
-        onSrcFD(pck_fd, cam_fd);
-        if (app_onSrcReady) app_onSrcReady(pck_fd);
+        onSrcFD(pck_src_info, cam_fd);
+        if (app_onSrcReady) app_onSrcReady(pck_src_info);
 
         // Request initial frame
         sendRedeem(-1);
@@ -175,7 +175,7 @@ TFlowBufCli::TFlowBufCli(
     MainContextPtr app_context,
     const char* _cli_name, const char* _srv_name,
     std::function<void(std::shared_ptr<TFlowBufPck> sp_pck)> _app_onFrame,
-    std::function<void(TFlowBufPck::pck_fd* src_info)> _app_onSrcReady,
+    std::function<void(const TFlowBufPck::pck_fd* src_info)> _app_onSrcReady,
     std::function<void()> _app_onSrcGone,
     std::function<void()> _app_onConnect, 
     std::function<void()> _app_onDisconnect) 
@@ -204,7 +204,7 @@ int TFlowBufCli::sendMsg(TFlowBufPck::pck &msg, int msg_id, int msg_custom_len =
     ssize_t res;
     size_t msg_len;
     const char* comment = nullptr;
-    
+
     if (sck_state_flag.v != Flag::SET) return 0;
 
     switch (msg_id) {
@@ -303,8 +303,24 @@ int TFlowBufCli::sendSignature()
     return 0;
 }
 
-void TFlowBufCli::Close()
+void TFlowBufCli::Disconnect()
 {
+
+    if (app_onSrcGone) {
+        app_onSrcGone();
+#if CODE_BROWSE
+        TFlowVStream::onSrcGoneRecording();
+        TFlowVStream::onSrcGoneStreaming();
+#endif
+    }
+
+    if (app_onDisconnect) {
+        app_onDisconnect();
+#if CODE_BROWSE
+            TFlowVStream::onDisconnect();
+#endif
+    }
+
     if (sck_fd != -1) {
         close(sck_fd);
         sck_fd = -1;
@@ -344,19 +360,21 @@ int TFlowBufCli::Connect()
 
     socklen_t sck_len = sizeof(sock_addr.sun_family) + srv_name.length() + 1;   // +1 for leading zero
     rc = connect(sck_fd, (const struct sockaddr*)&sock_addr, sck_len);
+
     if (rc == -1) {
-		static int presc = 0;
-        if ((++presc & 0x07) == 0) {    	
-        	g_warning("TFlowBufCli: Can't connect to the server %s (%d) - %s",
-            	srv_name.c_str(), errno, strerror(errno));
-		}
+        static int presc = 0;
+        if ((++presc & 0x07) == 0) {
+            g_warning("TFlowBufCli: Can't connect to the server %s (%d) - %s",
+                srv_name.c_str(), errno, strerror(errno));
+        }
+
         close(sck_fd);
         sck_fd = -1;
 
         return -1;
     }
 
-    g_warning("---TFlowBufCli: Connected to the server %s", srv_name.c_str());
+    g_warning("TFlowBufCli: Connected to the server %s", srv_name.c_str());
 
     sck_src = Glib::IOSource::create(sck_fd, (Glib::IOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP));
     sck_src->connect(sigc::mem_fun(*this, &TFlowBufCli::onMsg));
@@ -373,7 +391,7 @@ void TFlowBufCli::onIdle_no_ts()
     onIdle(now_ts);
 }
 
-void TFlowBufCli::onIdle(struct timespec now_ts)
+void TFlowBufCli::onIdle(const struct timespec &now_ts)
 {
     if (sck_state_flag.v == Flag::CLR) {
         if (TFlowPerfMon::diff_timespec_msec(&now_ts, &last_conn_check_ts) > 1000) {
@@ -409,15 +427,7 @@ void TFlowBufCli::onIdle(struct timespec now_ts)
         }
         else {
             sck_state_flag.v = Flag::SET;
-            /* Note: In case of Streamer reuse existing fifo for
-             *       different Tflow Capture connection (for ex. Capture was
-             *       closed and reopened), the gstreamer at another fifo's end
-             *       generates video with delay >1sec. Therefore, the gstreamer
-             *       need to be restarted. Closing TFlowStreamer will close
-             *       gstreamer if active.
-             * TODO: replace with Glib message/event to APP
-             */
-            app_onConnect();
+            if (app_onConnect) app_onConnect();
 
             sendSignature();
         }
@@ -427,10 +437,7 @@ void TFlowBufCli::onIdle(struct timespec now_ts)
     if (sck_state_flag.v == Flag::FALL) {
         // Connection aborted.
         // Most probably TFlow Buffer Server is closed
-        if (app_onSrcGone) app_onSrcGone();
-        if (app_onDisconnect) app_onDisconnect();
-
-        Close();
+        Disconnect();
 
         // Try to reconnect later
         sck_state_flag.v = Flag::CLR;

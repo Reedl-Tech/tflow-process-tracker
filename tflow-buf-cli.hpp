@@ -7,7 +7,7 @@
 
 #include <linux/videodev2.h> //V4L2 stuff
 
-#include <glib-unix.h>
+#include "tflow-glib.hpp"
 
 #include "tflow-common.hpp"
 #include "tflow-buf.hpp"
@@ -19,7 +19,7 @@ public:
         MainContextPtr app_context,
         const char* _cli_name, const char* _srv_name,
         std::function<void(std::shared_ptr<TFlowBufPck> sp_pck)> app_onFrame,
-        std::function<void(TFlowBufPck::pck_fd* src_info)> app_onSrcReady,
+        std::function<void(const TFlowBufPck::pck_fd* src_info)> app_onSrcReady,
         std::function<void()> app_onSrcGone,
         std::function<void()> app_onConnect,
         std::function<void()> app_onDisconnect);
@@ -27,10 +27,10 @@ public:
     ~TFlowBufCli();
     
     void onIdle_no_ts();
-    void onIdle(struct timespec now_ts);
+    void onIdle(const struct timespec &now_ts);
 
     int Connect();
-    void Close();
+    void Disconnect();
     bool onMsg(Glib::IOCondition);
 
     int sendMsg(TFlowBufPck::pck &msg, int msg_id, int msg_custom_len);
@@ -46,7 +46,7 @@ public:
     std::vector<TFlowBuf> tflow_bufs;
 
     std::function<void(std::shared_ptr<TFlowBufPck> sp_pck)> app_onFrame;
-    std::function<void(TFlowBufPck::pck_fd* src_info)> app_onSrcReady;
+    std::function<void(const TFlowBufPck::pck_fd* src_info)> app_onSrcReady;
     std::function<void()> app_onSrcGone;
     std::function<void()> app_onConnect;
     std::function<void()> app_onDisconnect;
@@ -57,7 +57,7 @@ private:
 
     int pending_buf_request;
     int msg_seq_num;
-    int cam_fd;
+    int cam_fd; // Rename to src_fd
 
     const std::string srv_name;
     const std::string cli_name;

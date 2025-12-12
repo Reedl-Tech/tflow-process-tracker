@@ -82,7 +82,7 @@ TFlowTracker::TFlowTracker(cv::Size _frame_size,
         frame_size),
 
     perf_mon((const TFlowPerfMonCfg::cfg_tflow_perfmon*)_cfg->perfmon.v.ref),
-    servo_pitch((const TFlowPWM::cfg_tflow_servo_cntrl*)_cfg->servo_pitch.v.ref),
+    servo_pitch((const TFlowPWMCfg::cfg_tflow_servo_cntrl*)_cfg->servo_pitch.v.ref),
     dashboard(this, (const TFlowTrackerCfg::cfg_trck_dashboard*)_cfg->dashboard.v.ref, frame_size),
     tgt(frame_size),
     vcond((const TFlowVCondCfg::cfg_vcond*)_cfg->vcond.v.ref, frame_size, Point2i(184, 44))
@@ -659,12 +659,14 @@ void TFlowTracker::getAuxData(const uint8_t* aux_data, uint32_t aux_data_len)
         return;
     }
 
+    if (userctrl.is_valid) userctrl.is_valid--;
+
     do {
         uint32_t sign = *(uint32_t*)aux_data;
         uint32_t bytes_consumed = 0;
         switch (sign) {
         case 0x54475431:    //TGT1
-             bytes_consumed = tgt.getData(aux_data, aux_data_len);
+            bytes_consumed = tgt.getData(aux_data, aux_data_len);
             break;
 
         case 0x494D5531:    // IMU1
@@ -682,7 +684,7 @@ void TFlowTracker::getAuxData(const uint8_t* aux_data, uint32_t aux_data_len)
     } while(aux_data_len);
 
 }
-//void TFlowTracker::onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in)
+
 void TFlowTracker::onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data, uint32_t aux_data_len)
 {
     static clock_t tracker_frame_profile[7];
@@ -699,10 +701,15 @@ void TFlowTracker::onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data, 
 
             getAuxData(aux_data, aux_data_len);
 
+            // userctrl_jstk - receive data for manual targeting assistance 
+            // Algo mix this input with Algo output and sends to Capture for
+            // further forwarding to AP
 
             vcond.onFrame(frame_in_ro, in_frame_local);
 
             onFrameAlgo(in_frame_local);
+
+            tgt.mixUserCtrl(userctrl.userctrl_jstk, userctrl.is_valid);
 
         } else if (dashboard.preview_force_frame) {
             // Frame is not changed but we have some inputs from a user.
@@ -717,12 +724,9 @@ void TFlowTracker::onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data, 
         // Copy input frame into a dedicated Dashboard's NV12 Mat
         // Normally frameCam is sub Mat of Dashboard's mainFrame.
         // As CamY and CamUV always create in pair, check Y Mat only.
-        if (pyr_curr && (*pyr_curr).size() > 0 && !(*pyr_curr)[0].empty() &&
-            !dashboard.frameCamY.empty()) {
+        if (pyr_curr && (*pyr_curr).size() > 0 ) {
 
-            (*pyr_curr)[0].copyTo(dashboard.frameCamY);
-            dashboard.frameCamY += 16;                      // +16 -> NV12 specific
-            dashboard.frameCamUV = cv::Scalar(128, 128);    // No color components in algo -> fill with default const
+            dashboard.addCamFrame((*pyr_curr)[0]);
         }
 
         tracker_frame_profile[2] = clock();
@@ -756,6 +760,7 @@ void TFlowTracker::onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data, 
 
     perf_mon.render(dashboard.render_prims);
     vcond.render(dashboard.render_prims);
+    dashboard.instrRender();    // TODO: Q? Should it be part of IMU?
 
     dashboard.render();
 
@@ -944,6 +949,18 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
         break;
     }
 
+    if (userctrl.is_valid) {
+        if (abs(userctrl.userctrl_jstk.r) > 100) {
+            float mv_speed = fabs(userctrl.userctrl_jstk.r) /   4000;
+            if (userctrl.userctrl_jstk.r < 0) {
+                servo_pitch.move_set(TFlowPWM::MOVE_DIR::UP, mv_speed);
+            }
+            else {
+                servo_pitch.move_set(TFlowPWM::MOVE_DIR::DOWN, mv_speed);
+            }
+        }
+    }
+
     servo_pitch.move_update();
 
     if (!frame_curr.empty()) {
@@ -1102,6 +1119,7 @@ TFlowBufPck::pck& TFlowTracker::getMsg(int* msg_len)
 
 void TFlowTracker::fillTrackerMsg()
 {
+    // Compose Mavlink like Attitude message for Milesi AP
     msg.result_1 = 0;
     msg.result_2 = 0;
 }
@@ -1306,13 +1324,64 @@ void TFlowTargeting::getTgt_v1(const TFlowTargeting::targeting_input_v1* tgt_in)
 
 }
 
+void TFlowTargeting::mixUserCtrl(const TFlowUserctrl::jstk_ctrl &jstk, int is_valid)
+{
+    // Temporary until algo doesn't provide stimuls
+    res_roll     = 0;
+    res_pitch    = 0;
+    res_yaw      = 0;
+    res_throttle = 0;
+
+    res_assisted_roll      = res_roll;
+    res_assisted_pitch     = res_pitch;
+    res_assisted_yaw       = res_yaw;
+    res_assisted_throttle  = res_throttle;
+
+    if (is_valid) {
+        // TODO: Mix with some coefficients user assistance to targeting output
+        res_assisted_roll      += (float)jstk.z / 1000;
+        res_assisted_pitch     += (float)jstk.r / 1000;
+        res_assisted_yaw       += (float)jstk.y / 1000;
+        res_assisted_throttle  += (float)jstk.x / 1000;
+    }
+
+    // Temporary until algo doesn't provide stimuls
+    res_roll     = res_assisted_roll;
+    res_pitch    = res_assisted_pitch;   
+    res_yaw      = res_assisted_yaw;
+    res_throttle = res_assisted_throttle;
+
+}
+
+TFlowTargeting::TFlowTargeting(const cv::Size &_frame_size) : frame_size(_frame_size)
+{
+    is_valid = 0;
+
+    targeting_en = 0;
+    cursor_x = 0.5f;
+    cursor_y = 0.5f;
+
+    butt_event = 0;
+    butt_event_id = -1;
+
+    res_roll     = 0.f;
+    res_pitch    = 0.f;
+    res_yaw      = 0.f;
+    res_throttle = 0.f;
+
+    res_assisted_roll     = 0.f;
+    res_assisted_pitch    = 0.f;
+    res_assisted_yaw      = 0.f;
+    res_assisted_throttle = 0.f;
+}
+
 int TFlowUserctrl::getData(const uint8_t* aux_data, uint32_t aux_data_len)
 {
     uint32_t sign = *(uint32_t*)aux_data;
     switch (sign) {
         case 0x4A53544B:    // JSTK
             memcpy(&userctrl_jstk, aux_data, sizeof(TFlowUserctrl::jstk_ctrl));
-            is_valid = 1;
+            is_valid = 5;
             return sizeof(TFlowUserctrl::jstk_ctrl);
         default:
             assert(0);

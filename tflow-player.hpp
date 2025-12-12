@@ -58,7 +58,7 @@ public:
     char aux_data_in[1024];
 /*
     TFlowImu::ap_imu_v2 in_imu_v2;      // RT.2 contains IMU_v2 which isn't stored in frame info, thus addition memory needs to be allocated
-    TFlowImu::ap_imu_v2 in_imu_v3;      // RT.2 contains IMU_v3 which isn't stored in frame info, thus addition memory needs to be allocated
+    TFlowImu::ap_imu_v3 in_imu_v3;      // RT.2 contains IMU_v3 which isn't stored in frame info, thus addition memory needs to be allocated
 */
 
     int setup(int buffs_num);
@@ -131,7 +131,7 @@ public:
 
     bool onIdle(struct timespec now_ts);
     bool onTick();
-    void onTickOnce();
+    bool onTickNextFrame();
     void onAction(ACTION action);
     int onDir(const json11::Json& j_in_params, json11::Json::object& j_out_params);
     int onCfg(const json11::Json& j_in_params, json11::Json::object& j_out_params);
@@ -152,7 +152,7 @@ public:
     // Filled by MJPEGCapture, used by TFlowCapture on TFlowBuf preparation
     struct frame_entry {
         uint8_t* data;
-        int owner_player;
+        int owner_streamer;
     };
     struct frame_entry *frames_tbl;
 
@@ -187,16 +187,15 @@ private:
 
     void setCurrentState(const char* new_state) { curr_state = new_state; }
 
-    //int  Open(const char* media_filename);
-    //void Close();
-
     TimeoutSourcePtr fps_tick_src;
 
     MainContextPtr context;  // Context for pending events
 
     void startFPSTimer();
     void stopFPSTimer();
-    void stepFPSTimer();
+    
+    int curr_state_ticks;   // -1 - get next frame on each FPS tick; 0 - do nothing; >0 - get next frame and decrement
+    std::shared_ptr<TFlowBufPck> sp_pck;
 
     int frames_count;
     const char* m_fname{ nullptr };

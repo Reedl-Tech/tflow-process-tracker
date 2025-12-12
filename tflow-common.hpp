@@ -26,3 +26,6 @@ public:
   ((sizeof(a) / sizeof(*(a))) / \
   static_cast<size_t>(!(sizeof(a) % sizeof(*(a)))))
 #endif
+
+#define PRESC(_x) static int presc##__COUNTER__##__func__ = 0;\
+    if (0 == (presc##__COUNTER__##__func__++ & _x))

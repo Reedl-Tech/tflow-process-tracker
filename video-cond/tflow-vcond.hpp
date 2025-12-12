@@ -5,8 +5,6 @@
 #include <opencv2/gapi.hpp>
 #include <opencv2/gapi/render.hpp>
 
-#include "../mongoose.h"
-
 #include "../tflow-common.hpp"
 #include "../tflow-glib.hpp"
 
@@ -66,5 +64,6 @@ private:
     const TFlowVCondCfg::cfg_vcond *cfg;
 
     void updateIntensityHistogram();
+    void updateScaleLine();
 };
 

@@ -34,7 +34,13 @@ public:
         float pitch;        /*< [rad] Pitch angle (-pi..+pi)*/
         float yaw;          /*< [rad] Yaw angle (-pi..+pi)*/
 
-        /* TODO: Add camera position from AP or Sensor's IMU */
+        /* Poke from GIMBAL_DEVICE_ATTITUDE_STATUS */
+        float gimbal_qw;
+        float gimbal_qx;
+        float gimbal_qy;
+        float gimbal_qz;
+        uint16_t gimbal_flags;     /* GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME or GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME */
+
     } ap_imu;
 
 #pragma pack(pop)

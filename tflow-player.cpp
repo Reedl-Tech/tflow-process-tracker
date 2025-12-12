@@ -1,7 +1,5 @@
-// TODO:
-//    While playback the maximum achived rate is 30Hz despite the processor load
-//    Probably need to switch execution from timer to an event or try to  tune
-//    idle loop/ thread priority/affinity if possible
+#include "tflow-build-cfg.hpp"
+
 #include <features.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -396,35 +394,33 @@ TFlowPlayer::TFlowPlayer(TFlowProcess* _app, MainContextPtr _context,
 
     frames_tbl = nullptr;
 
+    curr_state_ticks = 0;
+
     setCurrentState(off_str);
 }
 
 int TFlowPlayer::sendRedeem(int buff_idx)
 {
-    frames_tbl[buff_idx].owner_player = 1;
+    frames_tbl[buff_idx].owner_streamer = 1;
     return 0;
 }
 
 void TFlowPlayer::onAction(ACTION action)
 {
-
     if (action == ACTION::PAUSE) {
+        curr_state_ticks = 0;
         setCurrentState(pause_str);
-        stopFPSTimer();
     }
 
     if (action == ACTION::PLAY) {
+        curr_state_ticks = -1;
         setCurrentState(play_str);
-        stopFPSTimer();
-        startFPSTimer();
     }
 
-    if (action == STEP) {
+    if (action == ACTION::STEP) {
+        curr_state_ticks = 1;
         setCurrentState(pause_str);
-        stopFPSTimer();
-        stepFPSTimer();
     }
-
 }
 
 int TFlowPlayer::onDir(const json11::Json& j_in_params, json11::Json::object& j_out_params)
@@ -542,23 +538,16 @@ int TFlowPlayer::onDir(const json11::Json& j_in_params, json11::Json::object& j_
     return 0;
 }
 
-void TFlowPlayer::onTickOnce() {
-    TFlowPlayer::onTick();
-}
-
-bool TFlowPlayer::onTick()
+bool TFlowPlayer::onTickNextFrame()
 {
     int rc;
     int free_buff_idx = -1;
-
-    // Sanity
-    assert(!is_off_state());
 
     // Loop over all buffers and get 1st available
     // Fill it and pass to streamer
     for (int i = 0; i < buffs_num; i++) {
         struct frame_entry *frame = &frames_tbl[i];
-        if (frame->owner_player) {
+        if (frame->owner_streamer) {
             free_buff_idx = i;
             break;
         }
@@ -570,15 +559,24 @@ bool TFlowPlayer::onTick()
         return G_SOURCE_REMOVE;
     }
 
+    // Release previous packet as we gona create a new one.
+    // Att: the packet can be still used by othe modules. For ex. GFTT in mutithreding mode.
+    if (sp_pck) {
+        sp_pck.reset();
+        // Upon sp_pck.reset, if no other object held the packet, the Redeem 
+        // request will be sent from the packet destructor. In case of Player 
+        // the Redeem will just return packet's ownership back to Player.
+    }
+
     /*
      * Constructs shared pointer to the incoming packet and
-     * link with redeem function which will be called then
+     * link with redeem function which will be called when the
      * shared pointer counter reach zero.
      */
-    std::shared_ptr<TFlowBufPck> sp_pck = std::make_shared<TFlowBufPck>(
+    sp_pck = std::make_shared<TFlowBufPck>(
         std::bind(&TFlowPlayer::sendRedeem, this, std::placeholders::_1));
 
-    frames_tbl[free_buff_idx].owner_player = 0;
+    frames_tbl[free_buff_idx].owner_streamer = 0;
 
     sp_pck->d.consume.hdr.id = TFlowBufPck::TFLOWBUF_MSG_CONSUME;        // Required to release buffer on TFlowBufPck destructor
     sp_pck->d.consume.buff_index = free_buff_idx;
@@ -587,15 +585,10 @@ bool TFlowPlayer::onTick()
 
     rc = mjpegCapture.decompressNext(free_buff_idx, &last_error);
 
-#if 0
-    // if (in_imu_v2.sign == xxx) 
-    assert(sizeof(sp_pck->d.consume.aux_data) > sizeof(mjpegCapture.in_imu_v2));
-    memcpy(&sp_pck->d.consume.aux_data[0], &mjpegCapture.in_imu_v2, sizeof(mjpegCapture.in_imu_v2));
-    sp_pck->d.consume.aux_data_len = sizeof(mjpegCapture.in_imu_v2);
-#endif
+    sp_pck->d.consume.seq = mjpegCapture.curr_frame;
 
     assert(sizeof(sp_pck->d.consume.aux_data) > sizeof(mjpegCapture.aux_data_len));
-    memcpy(&sp_pck->d.consume.aux_data[0], &mjpegCapture.aux_data_len, mjpegCapture.aux_data_len);
+    memcpy(&sp_pck->d.consume.aux_data[0], &mjpegCapture.aux_data_in, mjpegCapture.aux_data_len);
     sp_pck->d.consume.aux_data_len = mjpegCapture.aux_data_len;
 
     if (rc) {
@@ -606,6 +599,7 @@ bool TFlowPlayer::onTick()
         else {
             onAction(PAUSE);
         }
+        sp_pck.reset();
         return G_SOURCE_REMOVE;       
     }
 
@@ -617,23 +611,38 @@ bool TFlowPlayer::onTick()
     sp_pck->d.consume.ts.tv_sec = tp.tv_sec;
     sp_pck->d.consume.ts.tv_usec = tp.tv_nsec / 1000;
 
+    return G_SOURCE_CONTINUE;
+}
+
+bool TFlowPlayer::onTick()
+{
+    // Sanity
+    assert(!is_off_state());
+
+    if (curr_state_ticks == 0) {
+        // Do nothing - means execute onFrame() with the empty sp_pck. This 
+        // allows update dashboard while Algo is in pause. For ex. change the
+        // scale, background, etc.
+        // sp_pck.reset();
+    }
+    else {
+        if (curr_state_ticks > 0) curr_state_ticks--;
+
+        bool rc = onTickNextFrame();
+        if (rc == G_SOURCE_REMOVE) {    // use last frame in case of EOF
+            // del me
+            // return G_SOURCE_REMOVE;
+        }
+
+    }
+
     // TODO: Q: Do we need to preserve current position in config? Why?
     // app->ctrl.cmd_flds_cfg_player.curr_frame.v.num = mjpegCapture.curr_frame;
 
     app_onFrame(sp_pck);
 
-    // Upon sp_pck.reset, if no other object held the packet the Redeem request
-    // will be sent from the packet destructor. 
-    sp_pck.reset();
-
-    if (cfg->playback_speed.v.dbl == -1 && is_play_state()) {
-        // Process next frame ASAP
-        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce), Glib::PRIORITY_HIGH);
-    }
-
     return G_SOURCE_CONTINUE;
 }
-
 
 bool TFlowPlayer::frameRateLimit(struct timeval* curr_ts)
 {
@@ -665,7 +674,7 @@ int TFlowPlayer::framesAlloc()
 
     for (int i = 0; i < buffs_num; i++) {
         frames_tbl[i].data = (uint8_t*)g_malloc(frame_size);
-        frames_tbl[i].owner_player = 1;
+        frames_tbl[i].owner_streamer = 1;
     }
 
     return 0;
@@ -702,28 +711,18 @@ int TFlowPlayer::Init(const char* media_file_name)
         mjpegCapture.setupRowPointers(i, frames_tbl[i].data);
     }
 
-/*
-    if (is_play_state()) {
-        onAction(ACTION::PLAY);
-    }
-    else {
-        onAction(ACTION::STEP);
-    }
-*/
+    startFPSTimer();
     onAction(ACTION::STEP);
 
     return 0;
 }
+
 void TFlowPlayer::stopFPSTimer()
 {
     if (fps_tick_src) {
         fps_tick_src->destroy();
         fps_tick_src.reset();
     }
-}
-void TFlowPlayer::stepFPSTimer()
-{
-    Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce), Glib::PRIORITY_HIGH);
 }
 
 void TFlowPlayer::startFPSTimer()
@@ -733,19 +732,24 @@ void TFlowPlayer::startFPSTimer()
 
     if (speed == -1) {
         // Procees ASAP
-        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce), Glib::PRIORITY_HIGH);
-        stopFPSTimer();
-    }
-    else {
-        assert(!fps_tick_src);
-
-        // Proceed in real time pace with coefficient
-        int fps_interval_ms = (int)roundf(1 / frame_rate * 1000.f / speed);
+        //Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowPlayer::onTickOnce), Glib::PRIORITY_HIGH);
+        //stopFPSTimer();
         
-        fps_tick_src = Glib::TimeoutSource::create(fps_interval_ms);            // TODO: Create once. Reuse on PLAY/PAUSE
-        fps_tick_src->connect(sigc::mem_fun(*this, &TFlowPlayer::onTick));
-        fps_tick_src->attach(context);
+        // Att!: Processing ASAP will consume all idle loop resourced and this
+        //       will kill other idle loop activities (TFlowCtrl for instance).
+        //       ASAP meaninig needs to be reconsidered
+        speed = 2;
     }
+
+    assert(!fps_tick_src);
+
+    // Proceed in real time pace with coefficient
+    int fps_interval_ms = (int)roundf(1 / frame_rate * 1000.f / speed);
+        
+    fps_tick_src = Glib::TimeoutSource::create(fps_interval_ms);            // TODO: Create once. Reuse on PLAY/PAUSE
+    fps_tick_src->connect(sigc::mem_fun(*this, &TFlowPlayer::onTick));
+    fps_tick_src->attach(context);
+
 }
 
 bool TFlowPlayer::onIdle(struct timespec now_ts)
@@ -780,17 +784,6 @@ bool TFlowPlayer::onIdle(struct timespec now_ts)
 #endif
 
             setCurrentState(pause_str);
-
-            /* Note: In case of Streamer reuse existing fifo for
-             *       different Tflow Capture connection (for ex. Capture was
-             *       closed and reopened), the gstreamer at another fifo's end
-             *       generates video with delay >1sec. Therefore, the gstreamer
-             *       need to be restarted. Closing TFlowStreamer will close
-             *       gstreamer if active.
-             * TODO: ^^^ need to be debugged or reworked for streaming via TFlowStreamerProcess
-             * TODO: replace with Glib message/event to APP
-             */
-//            app->fifo_streamer = new TFlowStreamer();
         }
         
         //Glib::signal_idle().connect_once(sigc::mem_fun(*this, &TFlowBufCli::onIdle));
@@ -813,7 +806,6 @@ bool TFlowPlayer::onIdle(struct timespec now_ts)
         // In case of file name changed - restart everything.
         player_state_flag.v = last_error ? Flag::CLR : Flag::RISE;
 
-        // TODO: Q ??? Should it be part of TFlowProcess::onSrcGone() ???
         if (app->fifo_streamer) {
             delete app->fifo_streamer;
             app->fifo_streamer = nullptr;
@@ -845,7 +837,9 @@ void TFlowPlayer::Deinit()
 
 TFlowPlayer::~TFlowPlayer()
 {
-    //stopFPSTimer();
+    if (sp_pck) {
+        sp_pck.reset();
+    }
 
     Deinit();
 }

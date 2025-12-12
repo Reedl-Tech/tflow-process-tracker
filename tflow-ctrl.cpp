@@ -1,3 +1,4 @@
+#include "tflow-build-cfg.hpp"
 #if _WIN32
 #include <io.h>
 #define open(a, b)    _open(a, b)
@@ -6,12 +7,10 @@
 #define strdup(a)     _strdup(a)
 #endif
 
+#include <cassert>
 #include <string>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <cassert>
-
-#include "tflow-build-cfg.hpp"
 
 #include "tflow-glib.hpp"
 
@@ -387,7 +386,16 @@ void  TFlowCtrl::collectRequestedChanges(tflow_cmd_field_t* in_cmd_fields,
             tflow_cmd_field_t* cmd_fld_ref_hdr = cmd_field->v.ref;
 
             if (cmd_fld_ref_hdr) {
+
                 int all_next = all | (cmd_field->flags & FIELD_FLAG::REQUESTED);
+
+                // If Custom UI group changed - report whole group
+                int custom_ui_ctrl_changed = (cmd_field->ui_ctrl && 
+                    cmd_field->ui_ctrl->type > UICTRL_TYPE::CUSTOM) ?
+                    (cmd_field->flags & FIELD_FLAG::CHANGED) : 0;         
+
+                all_next |= custom_ui_ctrl_changed;
+
                 Json::object j_sub_ctrl_params;
                 collectRequestedChanges(cmd_fld_ref_hdr + 1, j_sub_ctrl_params, was_changed, all_next);   // +1 to skip header
                 if (j_sub_ctrl_params.size() > 0) {
@@ -395,7 +403,7 @@ void  TFlowCtrl::collectRequestedChanges(tflow_cmd_field_t* in_cmd_fields,
                 }
             }
             cmd_field->flags = FIELD_FLAG::NONE;
-            }
+        }
         else if ( cmd_field->flags || all ) {     
             // Field has been changed or requested or group was
             // requested or full response on config ID mismatch.
@@ -648,12 +656,11 @@ int TFlowCtrl::setField(tflow_cmd_field_t* cmd_field, const Json& cfg_param)
             if (cmd_field->ui_ctrl &&
                 cmd_field->ui_ctrl->type == UICTRL_TYPE::BUTTON) {
                 // Don't care about value for buttons. Just set CHANGED flag
-                cmd_field->flags |= FIELD_FLAG::CHANGED;
             }
             else {
-                cmd_field->flags |= FIELD_FLAG::CHANGED;
                 cmd_field->v.num = new_num_value;
             }
+            cmd_field->flags |= FIELD_FLAG::CHANGED;
         }
         break;
     }
@@ -732,12 +739,16 @@ int TFlowCtrl::parseConfig(
     Json json_cfg;
 
     cfg_fd = open(cfg_fname.c_str(), O_RDWR);
-
-    if (fstat(cfg_fd, &sb) < 0) {
-        g_warning("Can't open configuration file %s", cfg_fname.c_str());
+    if (cfg_fd == -1) {
+        g_warning("Can't open configuration file %s - %d (%s)",
+            cfg_fname.c_str(), errno, strerror(errno));
         use_default_cfg = true;
     }
-    else if (!((sb.st_mode & S_IFREG) == S_IFREG)) {
+    else if (fstat(cfg_fd, &sb) < 0) {
+        g_warning("Can't stat configuration file %s", cfg_fname.c_str());
+        use_default_cfg = true;
+    }
+    else if (!S_ISREG(sb.st_mode)) {
         g_warning("Config name isn't a file %s", cfg_fname.c_str());
         use_default_cfg = true;
     }
@@ -752,7 +763,7 @@ int TFlowCtrl::parseConfig(
 
         if (!use_default_cfg) {
             std::string err;
-    
+
             raw_cfg[bytes_read] = 0;
             json_cfg = Json::parse(raw_cfg, err);
 
@@ -762,8 +773,7 @@ int TFlowCtrl::parseConfig(
             }
             else {
                 std::string s_msg = json_cfg.dump();
-                g_info("Config: %s", s_msg.c_str());
-
+                g_info("Config file (%s): %s", cfg_fname.c_str(), s_msg.c_str());
             }
         }
         free(raw_cfg);
@@ -802,17 +812,17 @@ int TFlowCtrl::parseConfig(
             config_cmd++;
         }
 
-        if ( rc ) {
+        if (rc) {
             g_critical("Can't parse config %s",
-                ( use_default_cfg == 0 ) ? "- try to use default config" : "- default fail");
-            if ( use_default_cfg ) {
+                (use_default_cfg == 0) ? "- try to use default config" : "- default fail");
+            if (use_default_cfg) {
                 g_error("Can't parse default config");
                 return -1;  // won't hit because of g_error. Default config should never fail.
             }
             use_default_cfg = 1; // Try to use default.
         }
 
-    } while ( rc );
+    } while (rc);
 
     return rc;
 }

@@ -168,6 +168,7 @@
     <ClCompile Include="..\tflow-btc.cpp" />
     <ClCompile Include="..\tflow-buf-cli.cpp" />
     <ClCompile Include="..\tflow-buf-srv.cpp" />
+    <ClCompile Include="..\tflow-buf.cpp" />
     <ClCompile Include="..\tflow-ctrl-cli-port.cpp" />
     <ClCompile Include="..\tflow-ctrl-process.cpp" />
     <ClCompile Include="..\tflow-ctrl-srv.cpp" />
@@ -209,7 +210,6 @@
     <ClInclude Include="..\tflow-ctrl-srv.hpp" />
     <ClInclude Include="..\tflow-ctrl.hpp" />
     <ClInclude Include="..\tflow-glib.hpp" />
-    <ClInclude Include="..\tflow-streamer.hpp" />
     <ClInclude Include="..\tflow-perfmon.hpp" />
     <ClInclude Include="..\tflow-player.hpp" />
     <ClInclude Include="..\tflow-process.hpp" />
@@ -248,11 +248,17 @@
     <PostBuildEvent>
       <Command>pscp $(OutDir)tflow-process-tracker root@192.168.2.2:/home/root</Command>
     </PostBuildEvent>
+    <ClCompile>
+      <CppLanguageStandard>c++17</CppLanguageStandard>
+    </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='6.6-Scarthgap|ARM64'">
     <PostBuildEvent>
       <Command>pscp $(OutDir)tflow-process-tracker root@192.168.2.3:/root</Command>
     </PostBuildEvent>
+    <ClCompile>
+      <CppLanguageStandard>c++17</CppLanguageStandard>
+    </ClCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

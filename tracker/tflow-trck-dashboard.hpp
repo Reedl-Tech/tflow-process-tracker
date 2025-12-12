@@ -45,6 +45,7 @@ struct jstk_ctrl {
 
 
 class TFlowTracker;
+class TFlowTargeting;
 
 class TFlowInstrumentMilesi {
 
@@ -72,6 +73,11 @@ public:
     std::vector<cv::Point2f> pitch_arrow;
     std::vector<cv::Point2i> pitch_arrow_i;
     std::vector<cv::Point2f> pitch_arrow_tr;
+
+    std::vector<cv::Point2f> pitch_stimul_arc;
+    std::vector<cv::Point2f> pitch_stimul_arc_tr;
+    std::vector<cv::Point2i> pitch_stimul_arc_i;
+
 
     std::vector<draw::Prim>  pitch_instr_prims_stoppers;
 
@@ -115,6 +121,10 @@ public:
     std::vector<cv::Point2f> roll_arc_tr;
     std::vector<cv::Point2i> roll_arc_i;
 
+    std::vector<cv::Point2f> stimul_roll_arc;
+    std::vector<cv::Point2f> stimul_roll_arc_tr;
+    std::vector<cv::Point2i> stimul_roll_arc_i;
+
     std::vector<cv::Point2f> roll_box; 
     std::vector<cv::Point2f> roll_box_tr;
     std::vector<cv::Point2i> roll_box_i;
@@ -125,11 +135,13 @@ public:
     void initCamera();
     void initCompass();
 
-    void render(std::vector<draw::Prim> &prims, const TFlowImu::imu_milesi_v0 &imu);
-    void renderPitch  (std::vector<draw::Prim> &prims, float pitch_rad);
-    void renderCamera (std::vector<draw::Prim> &prims, float pitch_rad);
-    void renderRoll   (std::vector<draw::Prim> &prims, float pitch_rad);
-    void renderCompass(std::vector<draw::Prim> &prims, float pitch_rad);
+    void render(std::vector<draw::Prim> &prims, 
+        const TFlowImu::imu_milesi_v0 &imu, const TFlowTargeting &tgt, float camera_pitch_rad);
+
+    void renderPitch  (std::vector<draw::Prim> &prims, float pitch_rad, float stimul, float assist);
+    void renderCamera (std::vector<draw::Prim> &prims, float pitch_rad, float stimul, float assist);
+    void renderRoll   (std::vector<draw::Prim> &prims, float pitch_rad, float stimul, float assist);
+    void renderCompass(std::vector<draw::Prim> &prims, float pitch_rad, float stimul, float assist);
 
 
     static void createCircle(std::vector<cv::Point2f> &circle, 
@@ -170,6 +182,7 @@ public:
     void onPointer(int event, int x, int y, int flags);
 
     void addCamFrameZoomed(const cv::Rect2f grid_sector);
+    void addCamFrame(const cv::Mat& cam_frame_bw);
 
     /* ======== Algo overrides ======= */
     void initDashboardFrame(uint8_t* data_ptr);
@@ -203,15 +216,10 @@ public:
     cv::Mat frameCamY;
     cv::Mat frameCamUV;
 
-    //    Size frame_cam_size_nv12;
-    //Size frame_cam_size_Y;
-    //Size frame_cam_size_UV;
-
 #if OFFLINE_PROCESS
     // imshow can't render NV12
     Mat frameMainBGR;
 #endif
-
 
     int instr_refresh;
 
@@ -236,6 +244,8 @@ public:
     int preview_force_frame = 0;    // Initiate frame processing even if it wasn't changed.
                                     // Is used for handling user mouse activity over freezed frame.
 
+    void instrRender();
+
 private:
     const TFlowTrackerCfg::cfg_trck_dashboard* cfg;
 
@@ -243,8 +253,6 @@ private:
     cv::Point2f frame_drag;
 
     TFlowInstrumentMilesi   instrMilesi;
-
-    void instrRender();
 
     int grid_zoom_step = 0;       // 
     int grid_sector_ext = 0;      // Grid's sector extension in percent

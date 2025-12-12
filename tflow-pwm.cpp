@@ -14,6 +14,8 @@
 
 using namespace std;
 
+TFlowPWMCfg tflow_servo_pitch_cfg;
+
 TFlowPWM::~TFlowPWM()
 {
     if (fd_enable != -1) {
@@ -34,7 +36,7 @@ TFlowPWM::~TFlowPWM()
 
 }
 
-TFlowPWM::TFlowPWM(const struct cfg_tflow_servo_cntrl* _cfg)
+TFlowPWM::TFlowPWM(const TFlowPWMCfg::cfg_tflow_servo_cntrl* _cfg)
 {
     cfg = _cfg;
 
@@ -75,31 +77,32 @@ TFlowPWM::TFlowPWM(const struct cfg_tflow_servo_cntrl* _cfg)
         // return;
     }
     close(fd_export);
+    usleep(100000);
 
     char val_str[16];
     size_t val_str_len;
     ssize_t wrttn;
 
-    std::string pwm_period = 
+    std::string fname_pwm_period = 
         std::string(pwm_chip) + std::string("pwm") + std::string(cfg->channel.v.c_str) + 
         std::string("/period");
-    fd_period = open(pwm_period.c_str(), O_WRONLY);
+    fd_period = open(fname_pwm_period.c_str(), O_WRONLY);
     val_str_len = snprintf(val_str, sizeof(val_str), "%d", cfg->period.v.num);
     wrttn = write(fd_period, val_str, val_str_len);
 
-    std::string pwm_dutycycle = 
+    std::string fname_pwm_dutycycle = 
         std::string(pwm_chip) + std::string("pwm") + std::string(cfg->channel.v.c_str) + 
         std::string("/duty_cycle");
-    fd_duty_cycle = open(pwm_dutycycle.c_str(), O_WRONLY);
+    fd_duty_cycle = open(fname_pwm_dutycycle.c_str(), O_WRONLY);
 
     duty_cycle = degr2dutecycle(0); // Always start from pos 0? 
     val_str_len = snprintf(val_str, sizeof(val_str), "%d", duty_cycle);
     wrttn = write(fd_duty_cycle, val_str, val_str_len);
 
-    std::string pwm_enable = 
+    std::string fname_pwm_enable = 
         std::string(pwm_chip) + std::string("pwm") + std::string(cfg->channel.v.c_str) + 
         std::string("/enable");
-    fd_enable = open(pwm_enable.c_str(), O_WRONLY);
+    fd_enable = open(fname_pwm_enable.c_str(), O_WRONLY);
     wrttn = write(fd_enable, "1", 1);
 
     return;
@@ -121,22 +124,41 @@ void TFlowPWM::onConfig()
 
 int TFlowPWM::degr2dutecycle(float degr)
 {
+    int pwm_min = cfg_dtc_min();
+    int pwm_max = cfg_dtc_max();
+
     // In degrees
     // 0 - horizont; 90 - look down; -90 - look up
-    // Values specific for servo MODEL: xxxx
-    int dtc = ((90.0 - degr) * pwm_degr2val) + pwm_min;
+    int dtc = lround((90.0 - degr) * cfg->degr2dtc.v.dbl) + pwm_min;
 
     if (dtc > pwm_max) dtc = pwm_max;
     if (dtc < pwm_min) dtc = pwm_min;
 
     return dtc;
 }
+
+float TFlowPWM::get_dutecycle_rad() const 
+{
+    int pwm_min = cfg_dtc_min();
+    int pwm_max = cfg_dtc_max();
+
+    // In degrees
+    // 0 - vertical; +90 - look down; -90 - look up
+    // Values specific for servo MODEL: xxxx
+    float degr = 90 - (duty_cycle - pwm_min) / (float)cfg->degr2dtc.v.dbl;
+
+    return DEG2RAD(degr);
+}
+
 float TFlowPWM::dutecycle2degr(int dtc)
 {
+    int pwm_min = cfg_dtc_min();
+    int pwm_max = cfg_dtc_max();
+
     // In degrees
     // 0 - vertical; 90 - look down; -90 - look up
     // Values specific for servo MODEL: xxxx
-    float degr =  90 - (dtc - pwm_min) / pwm_degr2val;
+    float degr =  90.f - (dtc - pwm_min) / (float)cfg->degr2dtc.v.dbl;
 
     if (dtc > pwm_max) dtc = pwm_max;
     if (dtc < pwm_min) dtc = pwm_min;
@@ -187,11 +209,8 @@ void TFlowPWM::move_update()                                             // Upda
     }
 
     // Apply forced configuration if present
-    if (cfg->force_dtc.v.num > 0) {
-        duty_cycle_new = cfg->force_dtc.v.num;
-    }
-    else if (isfinite(cfg->force_dtc_degr.v.dbl)) {
-        duty_cycle_new = degr2dutecycle(cfg->force_dtc_degr.v.dbl);
+    if (cfg->force_dtc_en.v.num) {
+        duty_cycle_new = degr2dutecycle(cfg->force_dtc_degr.v.num - 20);
     }
     else if (cfg->force_up.v.num > 0 && cfg->force_down.v.num > 0) {
         // Both direction force == STOP
@@ -204,8 +223,13 @@ void TFlowPWM::move_update()                                             // Upda
         duty_cycle_new = duty_cycle - dtc_delta; 
     }
 
-    if (duty_cycle_new > pwm_max) duty_cycle_new = pwm_max;
-    if (duty_cycle_new < pwm_min) duty_cycle_new = pwm_min;
+    {
+        int pwm_min = cfg_dtc_min();
+        int pwm_max = cfg_dtc_max();
+
+        if (duty_cycle_new > pwm_max) duty_cycle_new = pwm_max;
+        if (duty_cycle_new < pwm_min) duty_cycle_new = pwm_min;
+    }
 
     if (duty_cycle_new == duty_cycle) {
         return;

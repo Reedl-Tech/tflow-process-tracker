@@ -93,24 +93,7 @@ int TFlowVCond::onConfig(json11::Json::object& j_out_params)
             cfg->scale_on.flags |
             cfg->scale_offset.flags)) {
 
-        ihist_scale_tangens = tan(DEG2RAD(cfg->scale_angle.v.num));
-
-        ihist_scale_k = 1 / ihist_scale_tangens;
-        ihist_scale_offset = 128 - ihist_scale_k * cfg->scale_offset.v.num;
-
-        // Draw scale line
-        prims_ihist_line.clear();
-        if (cfg->scale_on.v.num) {
-            int scale_offset_norm = cfg->scale_offset.v.num * VCOND_IHIST_RECT_W / 256;
-            int dx = (int)(ihist_scale_tangens * VCOND_IHIST_RECT_H / 2);
-            Point2i lb = Point2i(ihist_render_center.x - VCOND_IHIST_RECT_W/2 + scale_offset_norm - dx, ihist_bottom_left.y);  
-            Point2i ru = Point2i(ihist_render_center.x - VCOND_IHIST_RECT_W/2 + scale_offset_norm + dx, ihist_upper_left.y);  
-            prims_ihist_line.emplace_back(draw::Line{ lb, ru, red });
-
-            Point2i c = Point2i(ihist_render_center.x - VCOND_IHIST_RECT_W/2 + scale_offset_norm, ihist_render_center.y);  
-            prims_ihist_line.emplace_back(draw::Circle{ c, 3, red });
-        }
-
+        updateScaleLine();
     }
 
     return 0;
@@ -236,7 +219,43 @@ void TFlowVCond::render(std::vector<cv::gapi::wip::draw::Prim>& prims)
 {
     if (cfg->in_histg_dashb.v.num) {
         prims.insert(prims.end(), 
-            prims_histogram.begin(), prims_histogram.end());
+            prims_histogram.cbegin(), prims_histogram.cend());
+
+        prims.insert(prims.end(), 
+            prims_ihist_line.cbegin(),prims_ihist_line.cend());
+    }
+}
+
+void TFlowVCond::updateScaleLine()
+{
+    ihist_scale_tangens = tan(DEG2RAD(cfg->scale_angle.v.num));
+
+    ihist_scale_k = 1 / ihist_scale_tangens;
+    ihist_scale_offset = 128 - ihist_scale_k * cfg->scale_offset.v.num;
+
+    // Draw scale line
+    prims_ihist_line.clear();
+    if (cfg->scale_on.v.num) {
+        int scale_offset_norm = cfg->scale_offset.v.num * VCOND_IHIST_RECT_W / 256;
+        int dx = (int)(ihist_scale_tangens * VCOND_IHIST_RECT_H / 2);
+            
+        Point2i c = ihist_render_center;  
+        c.x -= VCOND_IHIST_RECT_W/2 - scale_offset_norm;  
+
+        Point2i lb = Point2i(c.x - dx, ihist_bottom_left.y); 
+        if (lb.x < ihist_upper_left.x) {
+            // Limit line by the histogram rectangle
+            lb.y -= (ihist_upper_left.x - lb.x) * ihist_scale_k;
+            lb.x = ihist_upper_left.x;
+        }
+        Point2i ru = Point2i(c.x + dx, ihist_upper_left.y);  
+        if (ru.x > ihist_bottom_right.x) {
+            // Limit line by the histogram rectangle
+            ru.y += (ru.x - ihist_bottom_right.x) * ihist_scale_k;
+            ru.x = ihist_bottom_right.x;
+        }
+        prims_ihist_line.emplace_back(draw::Line{ lb, ru, red });
+        prims_ihist_line.emplace_back(draw::Circle{ c, 3, red });
     }
 }
 
@@ -283,9 +302,5 @@ void TFlowVCond::updateIntensityHistogram()
                 });
         */
     }
-
-    // Draw Scale line
-    prims_histogram.insert(prims_histogram.end(),
-        prims_ihist_line.cbegin(),prims_ihist_line.cend());
 
 }

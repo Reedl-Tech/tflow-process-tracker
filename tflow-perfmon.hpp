@@ -8,6 +8,7 @@
 #include <opencv2/gapi.hpp>
 
 #include "tflow-ctrl.hpp"
+namespace draw = cv::gapi::wip::draw;
 
 #if _WIN32
 // clock definition isn't in use yet
@@ -54,7 +55,7 @@ public:
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_perfmon = {
         TFLOW_CMD_HEAD("navigator-perfmon"),
-        .dbg_render   = { "dbg_render", TFlowCtrl::CFT_NUM, 0, {.num =   2}, &ui_dd_perfmon_dbg },
+        .dbg_render   = { "perf_mon_dbg_render", TFlowCtrl::CFT_NUM, 0, {.num =   2}, &ui_dd_perfmon_dbg },
         .lbl_x        = { "lbl_x",      TFlowCtrl::CFT_NUM, 0, {.num = 300} },
         .lbl_y        = { "lbl_y",      TFlowCtrl::CFT_NUM, 0, {.num = 260} },
         TFLOW_CMD_EOMSG
@@ -114,7 +115,7 @@ public:
 
     void tickStart();
     void tickStop();
-    void render(std::vector<cv::gapi::wip::draw::Prim>& prims);
+    void render(std::vector<draw::Prim>& prims);
     const TFlowPerfMonCfg::cfg_tflow_perfmon* cfg;
 
     static struct timespec diff_timespec(const struct timespec* time1, const struct timespec* time0);

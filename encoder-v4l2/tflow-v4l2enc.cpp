@@ -323,16 +323,6 @@ int TFlowEnc::enqueueInputBuffer(TFlowBuf &buf)
 
     buf.state = TFlowBuf::BUF_STATE_DRIVER;
 
-    //memset(&buffer, 0, sizeof(buffer));
-    //memset(&plane, 0, sizeof(plane));
-    //buffer.index = 0;
-    //buffer.type = input_fmt_type;
-    //buffer.memory = V4L2_MEMORY_MMAP;
-    //buffer.length = 1;
-    //buffer.m.planes = plane;
-    //buffer.m.planes->bytesused = 0x35280;
-    //buffer.m.planes->data_offset = 0;
-
     // Put the buffer to driver's queue
     if (-1 == ioctl(enc_dev_fd, VIDIOC_QBUF, &buf.v4l2_buf)) {
         g_critical("Can't VIDIOC_QBUF (%d) - %s", errno, strerror(errno));

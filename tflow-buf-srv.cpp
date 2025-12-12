@@ -3,29 +3,40 @@
 
 #include "tflow-glib.hpp"
 #include "tflow-common.hpp"
-#include "tflow-perfmon.hpp"
-
 #include "tflow-buf-srv.hpp"
+#include "tflow-buf.hpp"
+#include "tflow-buf-pck.hpp"
 
-gboolean TFlowBufSrv::onCliMsg(Glib::IOCondition io_cond)
+static struct timespec diff_timespec(
+    const struct timespec* time1,
+    const struct timespec* time0)
 {
-    // get CliPort by FD or from the bound argument
-    TFlowBufSCliPort* cli_port = nullptr; // source->cli_port;
-    // ...
-
-    int rc = cli_port->onMsg();
-    if (rc) {
-        releaseCliPort(cli_port);
-        return G_SOURCE_REMOVE;
+    assert(time1);
+    assert(time0);
+    struct timespec diff = { .tv_sec = time1->tv_sec - time0->tv_sec, //
+        .tv_nsec = time1->tv_nsec - time0->tv_nsec };
+    if (diff.tv_nsec < 0) {
+        diff.tv_nsec += 1000000000; // nsec/sec
+        diff.tv_sec--;
     }
-    return G_SOURCE_CONTINUE;
+    return diff;
 }
 
-gboolean TFlowBufSrv::onSrvMsg(Glib::IOCondition io_cond)
+static double diff_timespec_msec(
+    const struct timespec* time1,
+    const struct timespec* time0)
 {
-    g_info("TFlowBuf: Incoming connection");
+    struct timespec d_tp = diff_timespec(time1, time0);
+    return d_tp.tv_sec * 1000 + (double)d_tp.tv_nsec / (1000 * 1000);
+}
 
-    onConnect();
+gboolean TFlowBufSCliPort::onMsg(Glib::IOCondition io_cond)
+{
+    int rc = onMsgRcv();
+    if (rc) {
+        srv->releaseCliPort(this);
+        return G_SOURCE_REMOVE;
+    }
     return G_SOURCE_CONTINUE;
 }
 
@@ -46,8 +57,11 @@ void TFlowBufSrv::buf_redeem(TFlowBuf &tflow_buf, uint32_t mask)
     if (tflow_buf.owners == 0) {
         tflow_buf.owners = 1;
         buf_queue(tflow_buf.index);
-        //if (cam) cam->ioctl
-        //else if (player) player->shmQueueBuffer(tflow_buf.index);
+#if CODE_BROWSE
+        TFlowCapture::buf_queue(i);
+        TFlowStreamerProcess::buf_queue(i);
+            TFlowStreamerProcess::shmQueueBuffer(int buff_idx);
+#endif
     }
 }
 
@@ -58,13 +72,6 @@ void TFlowBufSrv::releaseCliPort(TFlowBufSCliPort* cli_port)
     g_warning("TFlowBufSrv: Release port [%s] mask=%d",
         cli_port->signature.c_str(), mask);
 
-    for (auto& tflow_buf : bufs) {
-        if (tflow_buf.owners & mask) {
-            g_warning("------TFlowBufSrv: redeem idx=%d, owners=%d", tflow_buf.index, tflow_buf.owners);
-            buf_redeem(tflow_buf, mask);
-        }
-    }
-
     for (auto& cli_port_p : cli_ports) {
         if (cli_port_p == cli_port) {
             delete cli_port;
@@ -72,15 +79,15 @@ void TFlowBufSrv::releaseCliPort(TFlowBufSCliPort* cli_port)
             break;
         }
     }
-}
 
-//int TFlowBufSrv::registerOnBuf(void* ctx, std::function<int(void* ctx, TFlowBuf& tflow_buf)> cb) 
-//{
-//    onBuf_ctx = ctx;
-//    onBuf_cb = cb;
-//
-//    return 0;
-//}
+    for (auto& tflow_buf : bufs) {
+        if (tflow_buf.owners & mask) {
+            g_warning("TFlowBufSrv: redeem idx=%d, owners=%d", tflow_buf.index, tflow_buf.owners);
+            buf_redeem(tflow_buf, mask);
+        }
+    }
+
+}
 
 TFlowBufSCliPort::~TFlowBufSCliPort()
 {
@@ -89,16 +96,10 @@ TFlowBufSCliPort::~TFlowBufSCliPort()
         sck_fd = -1;
     }
 
-    //if (sck_src) {
-    //    if (sck_tag) {
-    //        g_source_remove_unix_fd((GSource*)sck_src, sck_tag);
-    //        sck_tag = nullptr;
-    //    }
-    //    g_source_destroy((GSource*)sck_src);
-    //    g_source_unref((GSource*)sck_src);
-    //    sck_src = nullptr;
-    //}
-
+    if (sck_src) {
+        sck_src->destroy();
+        sck_src.reset();
+    }
 }
 
 TFlowBufSCliPort::TFlowBufSCliPort(TFlowBufSrv* _srv, uint32_t mask, int fd)
@@ -112,9 +113,8 @@ TFlowBufSCliPort::TFlowBufSCliPort(TFlowBufSrv* _srv, uint32_t mask, int fd)
     msg_seq_num = 0;
     request_cnt = 0;
 
-//  std::bind(_f, this, std::placeholders::_1, std::placeholders::_2)   // TODO: bind sck_fd
     sck_src = Glib::IOSource::create(sck_fd, (Glib::IOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP));
-    sck_src->connect(sigc::mem_fun(srv, &TFlowBufSrv::onCliMsg));
+    sck_src->connect(sigc::mem_fun(*this, &TFlowBufSCliPort::onMsg));
     sck_src->attach(context);
 
     last_idle_check_ts.tv_nsec = 0;
@@ -123,48 +123,76 @@ TFlowBufSCliPort::TFlowBufSCliPort(TFlowBufSrv* _srv, uint32_t mask, int fd)
 
 TFlowBufSrv::~TFlowBufSrv()
 {
+    for (auto &cli_port_p : cli_ports) {
+        if (cli_port_p) {
+            delete cli_port_p;
+            cli_port_p = nullptr;
+        }
+    }
+
+    if (sck_fd > 0) {
+        close(sck_fd);
+    }
+
+    if (sck_src) {
+        sck_src->destroy();
+        sck_src.reset();
+    }
 }
 
-TFlowBufSrv::TFlowBufSrv(const std::string& _my_name, const std::string& _srv_sck_name, MainContextPtr _context)
+TFlowBufSrv::TFlowBufSrv(
+    const std::string& _my_name, const std::string& _srv_sck_name,
+    MainContextPtr _context,
+    std::function<int(TFlowBuf &buf)> _onBuf_cb,
+    std::function<int(const TFlowBufPck::pck& in_msg)> _onCustomMsg_cb)
 {
     context = _context;
-
-    sck_fd = -1;
-
-    my_name = _my_name;
-    srv_name = _srv_sck_name;
-
-    // sck_name = "";
-    sck_state_flag.v = Flag::UNDEF;
+    onCustomMsg = _onCustomMsg_cb;
+    onBuf = _onBuf_cb;
 
     last_idle_check_ts.tv_nsec = 0;
     last_idle_check_ts.tv_sec = 0;
+
+    sck_fd = -1;
+    sck_state_flag.v = Flag::UNDEF;
+
+    my_name = _my_name;
+    srv_name = _srv_sck_name;
+}
+
+void TFlowBufSrv::onSrcFD()
+{
+    // Source connected
+    for (auto &cli_port_p : cli_ports) {
+        if (cli_port_p) cli_port_p->SendSrcFD();
+    }
 }
 
 void TFlowBufSrv::buf_create(int buf_num)
 {
-    bufs = std::vector<TFlowBuf>(buf_num, TFlowBuf());
+    bufs.reserve(buf_num);
 
     for (int i = 0; i < buf_num; i++) {
-        auto& tflow_buf = bufs.at(i);
+        TFlowBuf &tflow_buf = bufs.emplace_back();
+#if CODE_BROWSE
+        TFlowBuf::TFlowBuf();
+#endif
         tflow_buf.index = i;
 
-        // Pass all newly created buffers to a parent (i.e. Kernel for Camera)
+        // Pass all newly created buffers to a parent (i.e. Camera or Streamer)
         tflow_buf.owners = 1;
+
+        buf_tflow(tflow_buf);
+
         buf_queue(i);
 #if CODE_BROWSE
         TFlowBufSrvProcess::buf_queue(i);
+        TFlowCapture::buf_queue(i);
 #endif
-        //if (cam) cam->ioctlQueueBuffer(i);
-        //else if (player) player->shmQueueBuffer(i);
     }
 
 }
 
-/*
- * TODO: Q: ? Make input buffer agnostic as we need only buffer index, 
- *           v4l2_buf.timestamp and v4l2_buf.sequence ?
- */
 int TFlowBufSrv::buf_consume(int idx, uint32_t seq, struct timeval timestamp)
 {
     // Sanity check
@@ -188,17 +216,17 @@ int TFlowBufSrv::buf_consume(int idx, uint32_t seq, struct timeval timestamp)
 
     tflow_buf.owners = 0;
     tflow_buf.ts = timestamp;
-    tflow_buf.sequence = seq;// v4l2_buf.sequence;
+    tflow_buf.sequence = seq;
 
     // call owner's callback to update buffer's aux_data
-//    if (onBuf_cb) {
-//        onBuf_cb(onBuf_ctx, tflow_buf);
+    if (onBuf) {
+        onBuf(tflow_buf);
 #if CODE_BROWSE
-        static int _onBufAP();
         TFlowCapture::onBufAP(tflow_buf);
-        TFlowCapture::onBufPlayer(tflow_buf);
+        TFlowMilesi::onBuf(tflow_buf);
+        TFlowProcess::onBuf(tflow_buf)
 #endif
-//    }
+    }
 
     // loop over subscribers 
     for (auto &cli_port_p : cli_ports) {
@@ -210,12 +238,10 @@ int TFlowBufSrv::buf_consume(int idx, uint32_t seq, struct timeval timestamp)
     if (tflow_buf.owners == 0) {
         // If packet is not consumed, i.e. all subscribers already are
         // filled-up or no subscribers at all, then return the buffer back to 
-        // the Camera driver (Kernel)
+        // the Owner (i.e. Camera driver (v4l2), TFlowStreamer, etc.)
         tflow_buf.owners = 1;
 
         buf_queue(tflow_buf.index);
-        //if (cam) rc = cam->ioctlQueueBuffer(tflow_buf.index);
-        //else if (player) rc = player->shmQueueBuffer(tflow_buf.index);
     }
     return 0;
 }
@@ -264,7 +290,7 @@ int TFlowBufSCliPort::SendConsume(TFlowBuf &tflow_buf)
     return 0;
 }
 
-int TFlowBufSCliPort::SendFD()
+int TFlowBufSCliPort::SendSrcFD()
 {
     struct msghdr   msg;
     struct iovec    iov[1];
@@ -288,7 +314,7 @@ int TFlowBufSCliPort::SendFD()
     int dev_fd = srv->buf_dev_fd();
 
     if (dev_fd == -1) {
-        g_warning("TFlowBufCliPort: Ooops - fd is not valid");
+        g_warning("TFlowBufSCliPort: Ooops - fd is not valid");
     }
 
     msg.msg_name = nullptr;
@@ -324,8 +350,8 @@ int TFlowBufSCliPort::SendFD()
     }
 
     return 0;
-
 }
+
 int TFlowBufSCliPort::onRedeem(TFlowBufPck::pck_redeem* pck_redeem)
 {
     if (pck_redeem->buff_index != -1) {
@@ -344,10 +370,10 @@ int TFlowBufSCliPort::onPing(TFlowBufPck::pck_ping* pck_ping)
     int rc = 0;
 
     std::string ping_from = std::string(pck_ping->cli_name);
-    g_warning("TFlowBufCliPort: Ping on port %d from [%s]",
+    g_warning("TFlowBufSCliPort: Ping on port %d from [%s]",
         this->cli_port_mask, ping_from.c_str());
 
-    // rc = SendPong();
+//    rc = SendPong();
 
     return rc;
 }
@@ -355,53 +381,66 @@ int TFlowBufSCliPort::onPing(TFlowBufPck::pck_ping* pck_ping)
 int TFlowBufSCliPort::onSign(TFlowBufPck::pck_sign *pck_sign)
 {
     int rc;
+    int dev_fd = srv->buf_dev_fd();
 
     this->signature = std::string(pck_sign->cli_name);
-    g_warning("TFlowBufCliPort: Signature for port %d - [%s]",
+    g_warning("TFlowBufSCliPort: Signature for port %d - [%s]",
         this->cli_port_mask, this->signature.c_str());
 
-    rc = SendFD();
+    if (dev_fd != -1) {
+        rc = SendSrcFD();
+    }
 
     return rc;
 }
 
-int TFlowBufSCliPort::onMsg()
+int TFlowBufSCliPort::onMsgRcv()
 {
-    TFlowBufPck::pck in_udp_msg;
+    TFlowBufPck::pck in_msg;
 
-    int res = recv(sck_fd, &in_udp_msg, sizeof(in_udp_msg), 0); //MSG_DONTWAIT 
-    int err = errno;
+    int res = recv(sck_fd, &in_msg, sizeof(in_msg), 0); //MSG_DONTWAIT 
 
     if (res <= 0) {
-        if (err == ECONNRESET || err == EAGAIN) {
-            g_warning("TFlowBufCliPort: [%s] disconnected (%d) - closing",
+        int err = errno;
+        if (err == ECONNRESET || err == EAGAIN || err == ECONNREFUSED) {
+            g_warning("TFlowBufSCliPort: [%s] disconnected (%d) - closing",
                 this->signature.c_str(), errno);
         }
         else {
-            g_warning("TFlowBufCliPort: [%s] unexpected error (%d) - %s",
+            g_warning("TFlowBufSCliPort: [%s] unexpected error (%d) - %s",
                 signature.c_str(), errno, strerror(errno));
         }
         return -1;
     }
 
-    switch (in_udp_msg.hdr.id) {
-    case TFlowBufPck::TFLOWBUF_MSG_SIGN:
-        return onSign((TFlowBufPck::pck_sign*)&in_udp_msg);
-	case TFlowBufPck::TFLOWBUF_MSG_PING:
-        return onPing((TFlowBufPck::pck_ping*)&in_udp_msg);
-    case TFlowBufPck::TFLOWBUF_MSG_REDEEM:
-            return onRedeem((TFlowBufPck::pck_redeem*)&in_udp_msg);
-    default:
-        g_warning("TFlowBufCliPort: unexpected message received (%d)", in_udp_msg.hdr.id);
+    switch (in_msg.hdr.id) {
+        case TFlowBufPck::TFLOWBUF_MSG_SIGN:
+            return onSign((TFlowBufPck::pck_sign*)&in_msg);
+        case TFlowBufPck::TFLOWBUF_MSG_PING:
+            return onPing((TFlowBufPck::pck_ping*)&in_msg);
+        case TFlowBufPck::TFLOWBUF_MSG_REDEEM:
+            return onRedeem((TFlowBufPck::pck_redeem*)&in_msg);
+        default:
+            if ((in_msg.hdr.id > TFlowBufPck::TFLOWBUF_MSG_CUSTOM_) && srv->onCustomMsg) {
+                return srv->onCustomMsg(in_msg);
+#if CODE_BROWSE
+    int TFlowCapture::onCustomMsgNavigator(const struct pck_navigator& in_msg_nav);
+#endif
+            }
+            else {
+                g_warning("TFlowBufSCliPort: unexpected message received (%d)", in_msg.hdr.id);
+            }
     }
 
     return 0;
 }
 
-void TFlowBufSrv::onConnect()
+gboolean TFlowBufSrv::onConnect(Glib::IOCondition io_cond)
 {
     int cli_port_fd;
     
+    g_info("TFlowBuf: Incoming connection (cond %d)", (int)io_cond);
+
     /* Get new empty Client port */
     uint32_t mask = 2;
     TFlowBufSCliPort** cli_port_empty_pp = nullptr;
@@ -415,7 +454,7 @@ void TFlowBufSrv::onConnect()
 
     if (cli_port_empty_pp == nullptr) {
         g_warning("No more free TFlow Buf Client Ports");
-        return;
+        return G_SOURCE_CONTINUE;
     }
 
     struct sockaddr_un peer_addr = { 0 };
@@ -424,7 +463,7 @@ void TFlowBufSrv::onConnect()
     cli_port_fd = accept(sck_fd, (struct sockaddr*)&peer_addr, &sock_len);
     if (cli_port_fd == -1) {
         g_warning("TFlowBufSrv: Can't connect a TFlow Buffer Client");
-        return;
+        return G_SOURCE_CONTINUE;
     }
 
     //int flags = fcntl(cli_port_fd, F_GETFL, 0);
@@ -433,16 +472,21 @@ void TFlowBufSrv::onConnect()
     auto cli_port = new TFlowBufSCliPort(this, mask, cli_port_fd);
     *cli_port_empty_pp = cli_port;
 
-    g_warning("TFlowBufSrv: TFlow Buffer Client %d (%d) is connected",
+    g_info("TFlowBufSrv: TFlow Buffer Client %d (%d) is connected",
         cli_port->cli_port_mask, cli_port->sck_fd);
 
-    return;
+    return G_SOURCE_CONTINUE;
 }
 
 int TFlowBufSrv::StartListening()
 {
     int rc;
     struct sockaddr_un sock_addr;
+
+    if (sck_fd != -1) {
+        // Already listening
+        return 0;
+    }
 
     // Open local UNIX socket
     sck_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0);
@@ -461,7 +505,7 @@ int TFlowBufSrv::StartListening()
     memcpy(sock_addr.sun_path, sock_name.c_str(), sock_name_len);  // nullptr termination excluded
     sock_addr.sun_path[0] = 0;
 
-    socklen_t sck_len = sizeof(sock_addr.sun_family) + strlen(TFLOWBUFSRV_SOCKET_NAME) + 1;
+    socklen_t sck_len = sizeof(sock_addr.sun_family) + sock_name_len;
     rc = bind(sck_fd, (const struct sockaddr*)&sock_addr, sck_len);
     if (rc == -1) {
         g_warning("TFlowBufSrv: Can't bind (%d) - %s", errno, strerror(errno));
@@ -472,20 +516,20 @@ int TFlowBufSrv::StartListening()
 
     rc = listen(sck_fd, 1);
     if (rc == -1) {
-        g_warning("TFlowBufSrv: Can't bind (%d) - %s", errno, strerror(errno));
+        g_warning("TFlowBufSrv: Can't listen (%d) - %s", errno, strerror(errno));
         close(sck_fd);
         sck_fd = -1;
         return -1;
     }
 
     sck_src = Glib::IOSource::create(sck_fd, (Glib::IOCondition)(G_IO_IN | G_IO_ERR | G_IO_HUP));
-    sck_src->connect(sigc::mem_fun(*this, &TFlowBufSrv::onSrvMsg));
+    sck_src->connect(sigc::mem_fun(*this, &TFlowBufSrv::onConnect));
     sck_src->attach(context);
 
     return 0;
 }
 
-void TFlowBufSrv::onIdle(struct timespec now_ts)
+void TFlowBufSrv::onIdle(const struct timespec &now_ts)
 {
     if (sck_state_flag.v == Flag::SET) {
         // Normal operation. Check buffer are occupied for too long
@@ -502,7 +546,7 @@ void TFlowBufSrv::onIdle(struct timespec now_ts)
     }
 
     if (sck_state_flag.v == Flag::CLR) {
-        if (TFlowPerfMon::diff_timespec_msec(&now_ts, &last_idle_check_ts) > 1000) {
+        if (diff_timespec_msec(&now_ts, &last_idle_check_ts) > 1000) {
             last_idle_check_ts = now_ts;
             sck_state_flag.v = Flag::RISE;
         }
@@ -536,9 +580,13 @@ void TFlowBufSrv::onIdle(struct timespec now_ts)
         // We can't provide buffers any more.
         // Probably camera is closed
         
-        // Close all Clients Ports
-        
-        // Close the socket? but why?
+        // Close all Clients Ports as the frame format might be changed then the source reopened
+        for (auto &cli_port_p : cli_ports) {
+            if (cli_port_p) {
+                delete cli_port_p;
+                cli_port_p = nullptr;
+            }
+        }
         sck_state_flag.v = Flag::CLR;
     }
 

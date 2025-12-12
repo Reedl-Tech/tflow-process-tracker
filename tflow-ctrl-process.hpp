@@ -15,8 +15,14 @@
 #include "tflow-ctrl-process-ui.hpp"
 
 #include "tflow-algo.hpp"
+
+#if UDP_STREAMER
 #include "streamer-udp/tflow-udp-vstreamer-cfg.hpp"
+#endif
+
+#if WS_STREAMER
 #include "streamer-ws/tflow-ws-vstreamer-cfg.hpp"
+#endif
 
 // Structure that link TFlowCtrl with user specific algorithm from TFlowProcess
 extern TFlowAlgo::tflow_cfg_algo cmd_flds_cfg_algo;
@@ -34,8 +40,6 @@ public:
     void InitServer();
 
     int state_get();
-
-    TFlowEncUI enc_ui;
 
     struct tflow_cmd_flds_sign {
         tflow_cmd_field_t   eomsg;
@@ -73,8 +77,13 @@ public:
         tflow_cmd_field_t   state;
         tflow_cmd_field_t   opencl;
         tflow_cmd_field_t   video_src;
+#if UDP_STREAMER
         tflow_cmd_field_t   udp_streamer;
+#endif
+
+#if WS_STREAMER
         tflow_cmd_field_t   ws_streamer;
+#endif
 //        tflow_cmd_field_t   player;
         tflow_cmd_field_t   algo;
         tflow_cmd_field_t   eomsg;
@@ -82,8 +91,13 @@ public:
         .state        = { "state",        CFT_NUM,      0, {.num =       0},  &ui_switch_def},
         .opencl       = { "opencl",       CFT_NUM,      0, {.num =       2} },  // 0 - disabled, 1 - enabled, 2 - enable with info. AV: Excluded from UI as no reason so far to disable OpenCL
         .video_src    = { "video_src",    CFT_STR,      0, {.str = nullptr},  &ui_custom_video_src},   // <"live", "playback", "disabled" >
+
+#if UDP_STREAMER
         .udp_streamer = { "udp_streamer", CFT_REF,      0, {.ref = &tflow_udp_streamer_cfg.cmd_flds_cfg_udp_streamer.head} /* , &ui_group_def */},   
+#endif
+#if WS_STREAMER
         .ws_streamer  = { "ws_streamer",  CFT_REF,      0, {.ref = &tflow_ws_streamer_cfg.cmd_flds_cfg_ws_streamer.head}, &ui_group_def},   
+#endif
         .algo         = { "algo",         CFT_REF_SKIP, 0, {.ref = &cmd_flds_cfg_algo.head },  &ui_group_def },
         TFLOW_CMD_EOMSG
     };

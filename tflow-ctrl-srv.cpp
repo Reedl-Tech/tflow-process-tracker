@@ -2,13 +2,34 @@
 #include <sys/un.h>
 
 #include <json11.hpp>
-using namespace json11;
 
 #include "tflow-common.hpp"
-#include "tflow-perfmon.hpp"
 #include "tflow-ctrl-srv.hpp"
 
+using namespace json11;
 
+static struct timespec diff_timespec(
+    const struct timespec* time1,
+    const struct timespec* time0)
+{
+    assert(time1);
+    assert(time0);
+    struct timespec diff = { .tv_sec = time1->tv_sec - time0->tv_sec, //
+        .tv_nsec = time1->tv_nsec - time0->tv_nsec };
+    if (diff.tv_nsec < 0) {
+        diff.tv_nsec += 1000000000; // nsec/sec
+        diff.tv_sec--;
+    }
+    return diff;
+}
+
+static double diff_timespec_msec(
+    const struct timespec* time1,
+    const struct timespec* time0)
+{
+    struct timespec d_tp = diff_timespec(time1, time0);
+    return d_tp.tv_sec * 1000 + (double)d_tp.tv_nsec / (1000 * 1000);
+}
 
 TFlowCtrlSrv::~TFlowCtrlSrv()
 {
@@ -22,7 +43,7 @@ TFlowCtrlSrv::~TFlowCtrlSrv()
     }
 }
 
-TFlowCtrlSrv::TFlowCtrlSrv(const std::string& _my_name, const std::string& _srv_sck_name, MainContextPtr app_context)
+TFlowCtrlSrv::TFlowCtrlSrv(const std::string &_my_name, const std::string& _srv_sck_name, MainContextPtr app_context)
 {
     context = app_context;
 
@@ -109,14 +130,14 @@ int TFlowCtrlSrv::StartListening()
     return 0;
 }
 
-void TFlowCtrlSrv::onIdle(struct timespec now_ts)
+void TFlowCtrlSrv::onIdle(const struct timespec &now_ts)
 {
     if (sck_state_flag.v == Flag::SET) {
         return;
     }
 
     if (sck_state_flag.v == Flag::CLR) {
-        if (TFlowPerfMon::diff_timespec_msec(&now_ts, &last_idle_check_ts) > 1000) {
+        if (diff_timespec_msec(&now_ts, &last_idle_check_ts) > 1000) {
             last_idle_check_ts = now_ts;
             sck_state_flag.v = Flag::RISE;
         }

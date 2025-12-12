@@ -176,7 +176,7 @@ void TFlowCtrlProcess::collectCtrlsCustom(UICTRL_TYPE _custom_type,
 {
     
     UICTRL_TYPE_CUSTOM custom_type = (UICTRL_TYPE_CUSTOM)_custom_type;
-    assert(custom_type > (int)UICTRL_TYPE::CUSTOM);
+    assert(custom_type > UICTRL_TYPE::CUSTOM);
 
     // Custom controls - array which contains predefined set of control objects
     if ( 0 == strcmp(cmd_fld->name, "name_of_custom_control") ) {
@@ -220,8 +220,6 @@ void TFlowCtrlProcess::collectCtrlsCustom(UICTRL_TYPE _custom_type,
         }
         j_out_ctrl_arr.emplace_back(j_arr_entry);
     }
-
-
 }
 
 int TFlowCtrlProcess::cmd_cb_version(const json11::Json& j_in_params, Json::object& j_out_params)
@@ -269,6 +267,7 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
         app.setVideoSrc(cmd_flds_config.video_src.v.str);
     }
 
+#if WS_STREAMER
     if (cmd_flds_config.ws_streamer.flags & FIELD_FLAG::CHANGED) {
         TFlowWSStreamerCfg::cfg_ws_streamer* ws_streamer_rw_cfg = 
             (TFlowWSStreamerCfg::cfg_ws_streamer*)cmd_flds_config.ws_streamer.v.ref;
@@ -278,6 +277,7 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
             app.ws_streamer->onConfig(j_out_params);
         }
     }
+#endif
 
     if (app.algo && cmd_flds_config.algo.flags & FIELD_FLAG::CHANGED) {
         // Note: Json out params is not in use so far, but in theory, Algo

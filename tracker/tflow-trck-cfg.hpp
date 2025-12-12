@@ -93,37 +93,15 @@ public:
         TFLOW_CMD_HEAD("gftt_preview"),
         .max_corner      = { "max_corner",     TFlowCtrl::CFT_NUM, 0, {.num =    1} },
         .qual_lvl        = { "qual_lvl",       TFlowCtrl::CFT_DBL, 0, {.dbl =  0.1} },
-        .min_dist        = { "min_dist",       TFlowCtrl::CFT_NUM, 0, {.num =  30} },
+        .min_dist        = { "min_dist",       TFlowCtrl::CFT_NUM, 0, {.num =   30} },
         .block_size      = { "block_size",     TFlowCtrl::CFT_NUM, 0, {.num =   11} },       // Is used for goodFeaturesToTrack()
         .qlt_block_size  = { "qlt_block_size", TFlowCtrl::CFT_NUM, 0, {.num =   15} },       // Is used for Contrast and Quality calculation
         .gradient_size   = { "gradient_size",  TFlowCtrl::CFT_NUM, 0, {.num =    5} },
         .use_harris      = { "use_harris",     TFlowCtrl::CFT_DBL, 0, {.num =    0} },
         .harris_k        = { "harris_k",       TFlowCtrl::CFT_DBL, 0, {.dbl = 0.04} },
-        .win_w           = { "win_w",          TFlowCtrl::CFT_NUM, 0, {.num =  60} },
-        .win_h           = { "win_h",          TFlowCtrl::CFT_NUM, 0, {.num =  60} },
+        .win_w           = { "win_w",          TFlowCtrl::CFT_NUM, 0, {.num =   60} },
+        .win_h           = { "win_h",          TFlowCtrl::CFT_NUM, 0, {.num =   60} },
         .render_dbg      = { "render_dbg",     TFlowCtrl::CFT_NUM, 0, {.num =    8} },
-        TFLOW_CMD_EOMSG
-    };
-
-        TFlowCtrl::tflow_cmd_field_t   min;
-        TFlowCtrl::tflow_cmd_field_t   max;
-        TFlowCtrl::tflow_cmd_field_t   degr2dtc;
-        TFlowCtrl::tflow_cmd_field_t   channel;
-
-    TFlowPWM::cfg_tflow_servo_cntrl cmd_flds_cfg_servo_pitch = {
-        TFLOW_CMD_HEAD("servo_pitch"),
-        .channel         = { "channel",         TFlowCtrl::CFT_STR, 0, {.str = strdup("0")} },
-        .period          = { "period",          TFlowCtrl::CFT_NUM, 0, {.num = 20 * 1000000}},   // In nano sec
-        .degr2dtc        = { "degr2dtc",        TFlowCtrl::CFT_DBL, 0, {.dbl = (10/9*10000)}, &ui_edit_def },
-        .dtc_min         = { "dtc_min",         TFlowCtrl::CFT_NUM, 0, {.num =       360000}, &ui_edit_def },
-        .dtc_max         = { "dtc_max",         TFlowCtrl::CFT_NUM, 0, {.num =      1600000}, &ui_edit_def },
-        .move_speed      = { "move_speed",      TFlowCtrl::CFT_DBL, 0, {.dbl =          1.0}, &ui_edit_def },
-        .update_time_min = { "update_time_min", TFlowCtrl::CFT_DBL, 0, {.dbl =         50.0}, &ui_edit_def },   // minimal PWM update time in ms
-        // Test parametrs
-        .force_dtc       = { "force_dtc",       TFlowCtrl::CFT_NUM, 0, {.num =  -1}, &ui_edit_def },
-        .force_dtc_degr  = { "force_dtc_degr",  TFlowCtrl::CFT_DBL, 0, {.dbl = NAN}, &ui_edit_def },
-        .force_up        = { "force_up",        TFlowCtrl::CFT_NUM, 0, {.num =   0}, &ui_switch_def },
-        .force_down      = { "force_down",      TFlowCtrl::CFT_NUM, 0, {.num =   0}, &ui_switch_def },
         TFLOW_CMD_EOMSG
     };
 
@@ -173,37 +151,37 @@ public:
         TFlowCtrl::tflow_cmd_field_t   grid;
         TFlowCtrl::tflow_cmd_field_t   gftt_flytime;
         TFlowCtrl::tflow_cmd_field_t   gftt_preview;
+        TFlowCtrl::tflow_cmd_field_t   dashboard;
         TFlowCtrl::tflow_cmd_field_t   servo_pitch;
         TFlowCtrl::tflow_cmd_field_t   perfmon;
-        TFlowCtrl::tflow_cmd_field_t   dashboard;
         TFlowCtrl::tflow_cmd_field_t   vcond;
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_tracker = {
         TFLOW_CMD_HEAD("Tracker"),
-        .max_features_per_cell = { "max_features_per_cell", TFlowCtrl::CFT_NUM, 0, {.num =     1} },
-        .max_gftt_cells        = { "max_gftt_cells",        TFlowCtrl::CFT_NUM, 0, {.num =     9} },
-        .new_feat_min_dist     = { "new_feat_min_dist",     TFlowCtrl::CFT_NUM, 0, {.num =   600} },       // not in use part of gftt. TODO: do we need another distance criteria for featSparce?
-        .sparce_min_dist       = { "sparce_min_dist",       TFlowCtrl::CFT_NUM, 0, {.num =   600} },
-        .pyr_win_size          = { "pyr_win_size",          TFlowCtrl::CFT_NUM, 0, {.num =    33} },
-        .pyr_max_lvl           = { "pyr_max_lvl",           TFlowCtrl::CFT_NUM, 0, {.num =     2} },
-        .optf_win_size         = { "optf_win_size",         TFlowCtrl::CFT_NUM, 0, {.num =    33} },
-        .optf_term_crit_type   = { "optf_term_crit_type",   TFlowCtrl::CFT_NUM, 0, {.num = (int)(cv::TermCriteria::COUNT | cv::TermCriteria::EPS) } },
-        .optf_term_crit_cnt    = { "optf_term_crit_cnt",    TFlowCtrl::CFT_NUM, 0, {.num =    20} },
-        .optf_term_crit_eps    = { "optf_term_crit_eps",    TFlowCtrl::CFT_DBL, 0, {.dbl =  0.03} },
-        .optf_flags            = { "optf_flags",            TFlowCtrl::CFT_NUM, 0, {.num =     0} },
-        .optf_min_eig_thr      = { "optf_min_eig_thr",      TFlowCtrl::CFT_DBL, 0, {.dbl = 0.001} },
-        .frame_rate_limit      = { "frame_rate_limit",      TFlowCtrl::CFT_NUM, 0, {.num =     0} },
-        .select_snap_dist_sq   = { "select_snap_dist_sq",   TFlowCtrl::CFT_DBL, 0, {.dbl =    25} },
+        .max_features_per_cell = { "max_features_per_cell", TFlowCtrl::CFT_NUM,  0, {.num =     1} },
+        .max_gftt_cells        = { "max_gftt_cells",        TFlowCtrl::CFT_NUM,  0, {.num =     9} },
+        .new_feat_min_dist     = { "new_feat_min_dist",     TFlowCtrl::CFT_NUM,  0, {.num =   600} },       // not in use part of gftt. TODO: do we need another distance criteria for featSparce?
+        .sparce_min_dist       = { "sparce_min_dist",       TFlowCtrl::CFT_NUM,  0, {.num =   600} },
+        .pyr_win_size          = { "pyr_win_size",          TFlowCtrl::CFT_NUM,  0, {.num =    33} },
+        .pyr_max_lvl           = { "pyr_max_lvl",           TFlowCtrl::CFT_NUM,  0, {.num =     2} },
+        .optf_win_size         = { "optf_win_size",         TFlowCtrl::CFT_NUM,  0, {.num =    33} },
+        .optf_term_crit_type   = { "optf_term_crit_type",   TFlowCtrl::CFT_NUM,  0, {.num = (int)(cv::TermCriteria::COUNT | cv::TermCriteria::EPS) } },
+        .optf_term_crit_cnt    = { "optf_term_crit_cnt",    TFlowCtrl::CFT_NUM,  0, {.num =    20} },
+        .optf_term_crit_eps    = { "optf_term_crit_eps",    TFlowCtrl::CFT_DBL,  0, {.dbl =  0.03} },
+        .optf_flags            = { "optf_flags",            TFlowCtrl::CFT_NUM,  0, {.num =     0} },
+        .optf_min_eig_thr      = { "optf_min_eig_thr",      TFlowCtrl::CFT_DBL,  0, {.dbl = 0.001} },
+        .frame_rate_limit      = { "frame_rate_limit",      TFlowCtrl::CFT_NUM,  0, {.num =     0} },
+        .select_snap_dist_sq   = { "select_snap_dist_sq",   TFlowCtrl::CFT_DBL,  0, {.dbl =    25} },
         .pitch_hold_slow       = { "pitch_hold_slow",       TFlowCtrl::CFT_VNUM, 0, {.vnum = &pitch_hold_slow_value}, &ui_sl2_pitch_hold_slow },
         .pitch_hold_fast       = { "pitch_hold_fast",       TFlowCtrl::CFT_VNUM, 0, {.vnum = &pitch_hold_fast_value}, &ui_sl2_pitch_hold_fast },
-        .dbg_render            = { "dbg_render",            TFlowCtrl::CFT_NUM, 0, {.num =     0},  &ui_edit_def },
-        .grid                  = { "grid",                  TFlowCtrl::CFT_STR, 0, {.str = nullptr} },
+        .dbg_render            = { "dbg_render",            TFlowCtrl::CFT_NUM,  0, {.num =     0},  &ui_edit_def },
+        .grid                  = { "grid",                  TFlowCtrl::CFT_STR,  0, {.str = nullptr} },
         .gftt_flytime          = { "gftt_flytime", TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_gftt_flytime.head         } },
         .gftt_preview          = { "gftt_preview", TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_gftt_preview.head         } },
-        .servo_pitch           = { "servo_pitch",  TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_servo_pitch.head               }, &ui_group_def },
-        .perfmon               = { "perfmon",      TFlowCtrl::CFT_REF, 0, {.ref = &tflow_perfmon_cfg.cmd_flds_cfg_perfmon.head }, &ui_group_def },
         .dashboard             = { "dashboard",    TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_dashboard.head            }, &ui_group_def },
-        .vcond                 = { "vcond",        TFlowCtrl::CFT_REF, 0, {.ref = &tflow_vcond_cfg.cmd_flds_cfg_vcond.head     }, &ui_group_def},
+        .servo_pitch           = { "servo_pitch",  TFlowCtrl::CFT_REF, 0, {.ref = &tflow_servo_pitch_cfg.cmd_flds_cfg_servo_pitch.head  }, &ui_group_def },
+        .perfmon               = { "perfmon",      TFlowCtrl::CFT_REF, 0, {.ref = &tflow_perfmon_cfg.cmd_flds_cfg_perfmon.head          }, &ui_group_def },
+        .vcond                 = { "vcond",        TFlowCtrl::CFT_REF, 0, {.ref = &tflow_vcond_cfg.cmd_flds_cfg_vcond.head              }, &ui_group_def},
         TFLOW_CMD_EOMSG
     };
 

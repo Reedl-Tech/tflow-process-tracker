@@ -1,5 +1,12 @@
 #include "../tflow-build-cfg.hpp"
 
+#if _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else 
+#include "../tflow-glib.hpp"
+#endif
+
 #include <cstdio>
 #include <cassert>
 #include <vector>
@@ -7,11 +14,6 @@
 
 #include <sys/mman.h>
 
-#if _WIN32
-#include <windows.h>
-#else 
-#include "../tflow-glib.hpp"
-#endif
 
 #include <opencv2/opencv.hpp>
 #include <opencv2/gapi.hpp>
@@ -28,6 +30,7 @@
 using namespace json11;
 using namespace cv;
 using namespace std;
+namespace draw = cv::gapi::wip::draw;
 
 #if OFFLINE_PROCESS
 const char* TFLOW_TRACKER_DASH_WIN = "TFlow Tracker Dashboard";
@@ -111,10 +114,10 @@ TFlowTrackerDashboard::TFlowTrackerDashboard(
 
     frame_size_nv12 = Size(frame_size.width,   frame_size.height + frame_size.height/2);
     frame_size_Y    = Size(frame_size.width,   frame_size.height);
-    frame_size_UV   = Size(frame_size.width/2, frame_size.height/2);
+    frame_size_UV   = Size(frame_size.width/2, frame_size.height/2);    // Att!: width/2 because of frameMainUV is 2 channel Mat (CV_8UC2)
 
     // Set camera frame in center of dashboard
-    frameCamRect = Rect(
+    frameCamRect = cv::Rect(
         frame_size.width/2 - cam_frame_size.width/2,
         frame_size.height/2 - cam_frame_size.height/2,
         cam_frame_size.width, cam_frame_size.height);  // Note1: Size is choosen by FLYN frame format just
@@ -134,6 +137,18 @@ TFlowTrackerDashboard::TFlowTrackerDashboard(
     setMouseCallback(TFLOW_TRACKER_DASH_WIN, dashb_on_mouse_cb, (void*)this);
 #endif
 
+}
+
+void TFlowTrackerDashboard::addCamFrame(const Mat& cam_frame_bw)
+{
+    if (!cam_frame_bw.empty() && !frameCamY.empty()) {
+        cam_frame_bw.copyTo(frameCamY);
+        frameCamY += 16;                      // +16 -> NV12 specific
+        frameCamUV = cv::Scalar(128, 128);    // No color components in algo -> fill with default const
+    }
+    else {
+        // Cleanup old frame ???
+    }
 }
 
 void TFlowTrackerDashboard::addCamFrameZoomed(const cv::Rect2f grid_sector)
@@ -174,7 +189,8 @@ void TFlowTrackerDashboard::addCamFrameZoomed(const cv::Rect2f grid_sector)
 
 }
 
-void TFlowInstrumentMilesi::renderCompass(std::vector<draw::Prim> &prims, float compass_angl_rad)
+void TFlowInstrumentMilesi::renderCompass(std::vector<draw::Prim> &prims,
+    float compass_angl_rad, float stimul, float assist)
 {
     float af_sin = sin(compass_angl_rad);
     float af_cos = cos(compass_angl_rad);
@@ -195,7 +211,8 @@ void TFlowInstrumentMilesi::renderCompass(std::vector<draw::Prim> &prims, float 
     prims.emplace_back(draw::Line{ compass_tick_i[2], compass_tick_i[3], compass_color_l, 1 });
 }
 
-void TFlowInstrumentMilesi::renderCamera(std::vector<draw::Prim> &prims, float camera_angl_rad)
+void TFlowInstrumentMilesi::renderCamera(std::vector<draw::Prim> &prims,
+    float camera_angl_rad, float stimul, float assist)
 {
     float af_sin = sin(camera_angl_rad);
     float af_cos = cos(camera_angl_rad);
@@ -217,7 +234,8 @@ void TFlowInstrumentMilesi::renderCamera(std::vector<draw::Prim> &prims, float c
     drawPolyLine(prims, camera_arrow_i, camera_color_d, 2);
 }
 
-void TFlowInstrumentMilesi::renderRoll(std::vector<draw::Prim> &prims, float roll_angl_rad)
+void TFlowInstrumentMilesi::renderRoll(std::vector<draw::Prim> &prims,
+    float roll_angl_rad, float stimul, float assist)
 {
     // Rotate the Arc and the Arrow
     float af_sin = sin(roll_angl_rad);
@@ -237,14 +255,16 @@ void TFlowInstrumentMilesi::renderRoll(std::vector<draw::Prim> &prims, float rol
 }
 
 void TFlowInstrumentMilesi::render(std::vector<draw::Prim> &prims, 
-    const TFlowImu::imu_milesi_v0 &imu)
+    const TFlowImu::imu_milesi_v0 &imu, const TFlowTargeting &tgt, float camera_pitch_rad)
 {
-    renderCompass(prims, imu.yaw);    
-    renderRoll(prims, imu.roll);    
-    renderPitch(prims, imu.pitch);    
-    renderCamera(prims, 0.f);    
+    renderCompass(prims, imu.yaw, 0.f, 0.f);
+    renderRoll(prims, imu.roll, 0.f, 0.f);
+    renderPitch(prims, imu.pitch, tgt.res_pitch, tgt.res_assisted_pitch);
+    renderCamera(prims, camera_pitch_rad - imu.pitch, 0.f, 0.f);
 }
-void TFlowInstrumentMilesi::renderPitch(std::vector<draw::Prim> &prims, float pitch_angl_rad) 
+
+void TFlowInstrumentMilesi::renderPitch(std::vector<draw::Prim> &prims,
+    float pitch_angl_rad, float stimul, float assist) 
 {
     pitch_angl_rad = -pitch_angl_rad;
     // Rotate the Arc and the Arrow
@@ -263,6 +283,7 @@ void TFlowInstrumentMilesi::renderPitch(std::vector<draw::Prim> &prims, float pi
 
     // Pitch arc - aka servo rail, i.e. range of angles what can take the camera.
     // On Milesi it is +/- 90degrees.
+    // On Bubo it is +90 -20 degrees.
     drawPolyLine(prims, pitch_arc_i, pitch_color_d, 2);
     drawPolyLine(prims, pitch_arc_i_sh, white, 1);
 
@@ -273,13 +294,46 @@ void TFlowInstrumentMilesi::renderPitch(std::vector<draw::Prim> &prims, float pi
     // Arrow (triangle) - current pitch value
     prims.emplace_back(draw::Poly{ pitch_arrow_i, pitch_color_l, 1 });  // Arrow fill
     drawPolyLine(prims, pitch_arrow_i, pitch_color_d, 2);               // Arrow contour 
+
+    // Pitch Stimul
+    // TODO: make it exponential?
+    float stimul_pitch_rad = DEG2RAD(45) * stimul - pitch_angl_rad;
+    float assist_pitch_rad = DEG2RAD(45) * assist - pitch_angl_rad;
+
+    pitch_stimul_arc.clear();
+    if (stimul > 0) {
+        TFlowInstrumentMilesi::createCircle(
+            pitch_stimul_arc, MILESI_INSTR_R_PITCH, stimul_pitch_rad, -pitch_angl_rad, 180);
+    }
+    else if (stimul < 0) {
+        TFlowInstrumentMilesi::createCircle(
+            pitch_stimul_arc, MILESI_INSTR_R_PITCH, -pitch_angl_rad, stimul_pitch_rad, 180);
+    }
+
+    if (pitch_stimul_arc.size()) {
+        pitch_stimul_arc_tr.resize(pitch_stimul_arc.size());
+        pitch_stimul_arc_i.resize(pitch_stimul_arc.size());
+
+        TFlowInstrumentMilesi::vect_transform_transl(Mat(), instr_center, 
+            pitch_stimul_arc, pitch_stimul_arc_tr, pitch_stimul_arc_i);
+
+        drawPolyLine(prims, pitch_stimul_arc_i, pitch_color_h, 5);
+    }
+
+    cv::Point2f c_assisted(MILESI_INSTR_R_PITCH, 0);
+    cv::Point2f c_assisted_i;
+    c_assisted = point2f_rot(c_assisted, -sin(assist_pitch_rad), cos((assist_pitch_rad)));
+    c_assisted_i = instr_center;
+    c_assisted_i.x += (int)c_assisted.x;
+    c_assisted_i.y += (int)c_assisted.y;
+    prims.emplace_back(draw::Circle{c_assisted_i, 5, pitch_color_h, 1 });
 }
 
 void TFlowInstrumentMilesi::initPitch()
 {
     pitch_color_l = cv::Scalar{ 223,  238, 234 };
     pitch_color_d = cv::Scalar{   0,  128,   0 };
-    pitch_color_h = cv::Scalar{  51,  204,  51 };
+    pitch_color_h = cv::Scalar{  70,  255, 131 };
 
     rot_tr = Mat(2, 3, CV_64FC1);
     rot_tr.at<double>(0) = 1;
@@ -290,7 +344,11 @@ void TFlowInstrumentMilesi::initPitch()
     rot_tr.at<double>(4) = 1;
     rot_tr.at<double>(5) = 0;
 
-    createCircle(pitch_arc, MILESI_INSTR_R_PITCH, (float)RAD_NORM(DEG2RAD(+90)), (float)RAD_NORM(DEG2RAD(-90)), 180);
+// Milesi +90 .. -90
+//    createCircle(pitch_arc, MILESI_INSTR_R_PITCH, (float)RAD_NORM(DEG2RAD(+90)), (float)RAD_NORM(DEG2RAD(-90)), 180);
+
+// Bubo +20 .. -90
+    createCircle(pitch_arc, MILESI_INSTR_R_PITCH, (float)RAD_NORM(DEG2RAD(+20)), (float)RAD_NORM(DEG2RAD(-90)), 180);
     pitch_arc_tr   = std::vector<Point2f>(pitch_arc.size());
     pitch_arc_i    = std::vector<Point2i>(pitch_arc.size());
     pitch_arc_i_sh = std::vector<Point2i>(pitch_arc.size());
@@ -569,7 +627,7 @@ void TFlowInstrumentMilesi::createCircle(std::vector<cv::Point2f> &circle,
 
     float d_rad = (start_rad - end_rad);
     if (d_rad < 0) d_rad += (float)(2*M_PI);
-    int segments_num = (int)lround(segments_num_full * ( d_rad / (2 * M_PI)));
+    int segments_num = (int)lround(segments_num_full * ( d_rad / (2 * M_PI)));   // Round shouldn't be there. Last segment should be calculated separately
 
     // Get segment sector in radians
     circle.clear();
@@ -578,22 +636,27 @@ void TFlowInstrumentMilesi::createCircle(std::vector<cv::Point2f> &circle,
         circle.emplace_back(next_point);
         next_point = point2f_rot(next_point, seg_sin, seg_cos);
     }
-//    circle.emplace_back(circ_point);
+
+    // TODO: Ensure last point
+    //if ( ??? float d_rad = (start_rad - end_rad);) {
+    //    float end_sin = sin(end_rad);
+    //    float end_cos = cos(end_rad);
+    //    Point2f end_point = Point2f(radius, 0);
+    //    end_point = point2f_rot(end_point, end_sin, end_cos);
+    //
+    //}
 
 }
 
 void TFlowTrackerDashboard::render()
 {
-    if (frameMain.empty()) return;
-
-    instrRender();
-
     // As frameMainY and frameMainUV always create in pair, thus check Y Mat only.
     if (!frameMainY.empty()) {
         draw::render(frameMainY, frameMainUV, render_prims);
     }
 
 #if OFFLINE_PROCESS
+    // TODO: get rid of imshow - use tflow web instead
     cv::cvtColorTwoPlane(frameMainY, frameMainUV, frameMainBGR, COLOR_YUV2BGR_NV12);
     cv::imshow(TFLOW_TRACKER_DASH_WIN, frameMainBGR);
 #endif
@@ -603,8 +666,8 @@ void TFlowTrackerDashboard::render()
 void TFlowTrackerDashboard::instrRender()
 {
     const TFlowImu::imu_milesi_v0 &imu = trck->imu.ap_imu;
-
-    instrMilesi.render(render_prims, imu);
+    
+    instrMilesi.render(render_prims, imu, trck->tgt, trck->servo_pitch.get_dutecycle_rad());
 }
 
 void TFlowTrackerDashboard::getDashboardFrameSize(int *w, int *h)

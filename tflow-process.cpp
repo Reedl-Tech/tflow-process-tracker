@@ -34,123 +34,9 @@ namespace draw = cv::gapi::wip::draw;
 
 #define IDLE_INTERVAL_MSEC 100
 
-#define FIFO_STREAMER    0
-#define VSTREAM_STREAMER 0
-#define WS_STREAMER      1
-#define UDP_STREAMER     0
-
-int g_dbg_me = 0;
-
-int g_dbg_glibmm_excp = 0;
-
-TFlowBuf::~TFlowBuf()
-{
-    if (start != MAP_FAILED) {
-        munmap(start, length);
-        start = MAP_FAILED;
-    }
-
-    if (v4l2_buf.m.planes) {
-        free(v4l2_buf.m.planes);
-    }
-}
-
-TFlowBuf::TFlowBuf(int enc_fd, enum v4l2_buf_type type, int index, int planes_num)
-{
-    v4l2_plane *plane = (struct v4l2_plane*)calloc(VIDEO_MAX_PLANES, sizeof(struct v4l2_plane)); // TODO: ??? planes_num allocate number of planes used only ???
-    assert(plane);
-
-    CLEAR(v4l2_buf);
-    v4l2_buf.type     = type;
-    v4l2_buf.memory   = V4L2_MEMORY_MMAP;
-    v4l2_buf.m.planes = plane;
-    v4l2_buf.length   = planes_num;
-    v4l2_buf.index    = index;
-
-    this->index = -1;   
-    this->length = 0;
-    this->start = MAP_FAILED;
-    this->state = BUF_STATE_BAD;
-
-    int rc = ioctl(enc_fd, VIDIOC_QUERYBUF, &v4l2_buf);
-    if (rc) {
-        g_warning("Can't VIDIOC_QUERYBUF type=%d %d (%d) - %s",
-            type, rc, errno, strerror(errno));
-    }
-    else {
-        // Record the length and mmap buffer to user space
-        this->length = v4l2_buf.m.planes[0].length;
-        this->start = mmap(nullptr, v4l2_buf.m.planes[0].length,
-            PROT_READ | PROT_WRITE, MAP_SHARED, enc_fd, v4l2_buf.m.planes[0].m.mem_offset);
-        this->index = index;
-        this->state = BUF_STATE_FREE;
-    }
-}
-
-TFlowBuf::TFlowBuf(int cam_fd, int index, int planes_num)
-{
-    // This constructor is used for captures from camera and doesn't use v4l2_buf
-    memset(&this->v4l2_buf, 0, sizeof(v4l2_buf));
-
-    v4l2_buffer v4l2_buf_temp = {0};
-    v4l2_plane mplanes[planes_num];
-
-    v4l2_buf_temp.type       = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-    v4l2_buf_temp.memory     = V4L2_MEMORY_MMAP;
-    v4l2_buf_temp.m.planes   = mplanes;
-    v4l2_buf_temp.length     = planes_num;
-
-    v4l2_buf_temp.index = index;
-
-    this->index = -1;
-    this->length = 0;
-    this->start = MAP_FAILED;
-
-    // Query the information of the buffer with index=n into struct buf
-    if (-1 == ioctl(cam_fd, VIDIOC_QUERYBUF, &v4l2_buf_temp)) {
-        g_warning("Can't VIDIOC_QUERYBUF (%d)", errno);
-    }
-    else {
-        // Record the length and mmap buffer to user space
-        this->length = v4l2_buf_temp.m.planes[0].length;
-        this->start = mmap(nullptr, v4l2_buf_temp.m.planes[0].length,
-            PROT_READ | PROT_WRITE, MAP_SHARED, cam_fd, v4l2_buf_temp.m.planes[0].m.mem_offset);
-        this->index = index;
-    }
-}
-
-TFlowBuf::TFlowBuf()
-{
-    memset(&ts, 0, sizeof(ts));
-    sequence = 0;
-
-    /* Parameters obtained from Kernel on the Client side */
-    index = -1;
-    length = 0;
-    start = MAP_FAILED;
-
-    owners = 0;             // Bit mask of TFlowBufCli. Bit 0 - means buffer is in user space
-
-    aux_data_len = 0;
-    aux_data = nullptr;
-}
-
-int TFlowBuf::age() {
-    int rc;
-    struct timespec tp;
-    unsigned long proc_frame_ms, now_ms;
-
-    rc = clock_gettime(CLOCK_MONOTONIC, &tp);
-    now_ms = tp.tv_sec * 1000 + tp.tv_nsec / 1000000;
-    proc_frame_ms = ts.tv_sec * 1000 + ts.tv_usec / 1000;
-
-    return (now_ms - proc_frame_ms);
-}
-
 TFlowProcess::TFlowProcess(MainContextPtr _context, const std::string cfg_fname) :
     buf_cli(nullptr),           // ATT: Order is important here!!! Keep initialization order according to declaration one.
     player(nullptr),
-    fifo_streamer(nullptr),
     algo(nullptr),
     ws_streamer(nullptr),
     udp_streamer(nullptr),
@@ -177,6 +63,11 @@ TFlowProcess::TFlowProcess(MainContextPtr _context, const std::string cfg_fname)
         g_warning("Invalid CPU # (%d) supplied. Max is %d", target_cpu, processor_count);
     }
     
+    // TODO: reconsider glib context usage
+    //       I.e. use
+    //           context = g_main_context_new();
+    //           or MainContextPtr context = Glib::MainContext::get_default();
+    //           g_main_context_push_thread_default(context);
     main_loop = Glib::MainLoop::create(context, false);
 
     // Get OpenCL configuration from config
@@ -201,19 +92,12 @@ TFlowProcess::~TFlowProcess()
         delete player;
         player = nullptr;
     }
-    
-    if (fifo_streamer) {
-        delete fifo_streamer;
-        fifo_streamer = nullptr;
-    }
 }
 
 void TFlowProcess::onException()
 {
     g_info("Info Excep");
     g_warning("Warn Excep");
-    
-    g_dbg_glibmm_excp = 1;
 
     return;
 }
@@ -229,11 +113,6 @@ bool TFlowProcess::onIdle()
 
     if (player) {
         player->onIdle(now_ts);
-
-        if (g_dbg_me) {
-            g_dbg_me = 0;
-            player->onAction(TFlowPlayer::ACTION::PLAY);
-        }
     }
 
     if (!buf_cli && !player) {
@@ -325,7 +204,7 @@ int TFlowProcess::setVideoSrc(const char* video_src)
         if (!buf_cli) {
             buf_cli = new TFlowBufCli(
                 context,
-                "TFlowProcess", "com.reedl.tflow.capture.buf-server",
+                "TFlowProcess", "com.reedl.tflow.capture0.buf-server",
                 std::bind(&TFlowProcess::onFrame,       this, std::placeholders::_1),   // TFlowBufCli::app_onFrame()
                 std::bind(&TFlowProcess::onSrcReadyCam, this, std::placeholders::_1),   // TFlowBufCli::app_onSrcReady()
                 std::bind(&TFlowProcess::onSrcGone,     this),                          // TFlowBufCli::app_onSrcGone()
@@ -347,16 +226,9 @@ int TFlowProcess::setVideoSrc(const char* video_src)
 
 void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
 {
-    int cnt = sp_pck.use_count();
-
-    static clock_t proc_frame_profile[5];
-
-    uint32_t aux_data_len = sp_pck->d.consume.aux_data_len;
-    const uint8_t *aux_data = sp_pck->d.consume.aux_data;       // This data is from shared packet, thus do not modify!
-
-    proc_frame_profile[0] = clock();
-
     if (!algo) return;
+
+    if (!sp_pck) return;
 
 #if FIFO_STREAMER
     algo->initDashboardFrame((uint8_t*)nullptr);
@@ -369,15 +241,19 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
     algo->initDashboardFrame((uint8_t*)nullptr);
 
 #elif VSTREAM_STREAMER
-    algo->initDashboardFrame(streamer->getNextDataBuffer());
+    int free_buff_idx = streamer->getNextBufferIdx();
+    algo->initDashboardFrame(streamer->getDataByIdx(free_buff_idx));
 #endif
-    proc_frame_profile[1] = clock();
 
     TFlowBufPck::pck_consume* pck_curr = &sp_pck->d.consume;
+        
+    uint32_t aux_data_len = pck_curr->aux_data_len;
+    const uint8_t* aux_data = pck_curr->aux_data;       // This data is from shared packet, thus do not modify!
+
     const Mat& frame_curr_ro = in_frames_ro.at(pck_curr->buff_index);
-
-    algo->onFrame(frame_curr_ro, aux_data, aux_data_len);
-
+                                                                   
+    algo->onFrame(frame_curr_ro, aux_data, aux_data_len, pck_curr->seq);
+    
     // If buffer client is connected, then send the result back to the 
     // frames buffers originator (for ex. tflow-capture).
     if (buf_cli && buf_cli->sck_state_flag.v == Flag::SET) {
@@ -388,34 +264,7 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
         }
     }
 
-    proc_frame_profile[3] = clock();
-
-#if FIFO_STREAMER
-    if (fifo_streamer) {
-        const uint8_t* buff;
-        size_t buff_len;
-        algo->getDashboardFrameBuff(&buff, &buff_len);
-        fifo_streamer->fifoWrite(buff, buff_len);
-    }
-#elif WS_STREAMER 
-    if (ws_streamer) {      
-
-        TFlowBuf* dashboard_buf = ws_streamer ? ws_streamer->getFreeBuffer() : nullptr;
-
-        if (dashboard_buf) {
-            const uint8_t* buff;
-            size_t buff_len;
-            algo->getDashboardFrameBuff(&buff, &buff_len);
-            memcpy(dashboard_buf->start, buff, buff_len);
-            ws_streamer->consumeBuffer(*dashboard_buf);
-        }
-        else {
-            static int cnt = 0;
-            g_info("============== can't get free buffer %d =============", cnt++ );
-//            udp_streamer->encoder->recover_input(0);
-        }
-    }
-#elif UDP_STREAMER 
+#if UDP_STREAMER 
 
     if (udp_streamer) {      
         const uint8_t* buff;
@@ -443,16 +292,6 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
     streamer->consume(free_buff_idx);
 #endif
 
-    proc_frame_profile[4] = clock();
-
-    //g_info("Process profile: Total: %-5d, init %-5d, algo %-5d, redeem %-5d, send %-5d",
-    //        proc_frame_profile[4] - proc_frame_profile[0],
-    //        proc_frame_profile[1] - proc_frame_profile[0],
-    //        proc_frame_profile[2] - proc_frame_profile[1],
-    //        proc_frame_profile[3] - proc_frame_profile[2],
-    //        proc_frame_profile[4] - proc_frame_profile[3]);
-
-    int cnt1 = sp_pck.use_count();
 }
 
 void TFlowProcess::onSrcGone()
@@ -465,11 +304,6 @@ void TFlowProcess::onSrcGone()
     if (streamer) {
         delete streamer;
         streamer = nullptr;
-    }
-
-    if (fifo_streamer) {
-        delete fifo_streamer;
-        fifo_streamer = nullptr;
     }
 
     if (ws_streamer) {
@@ -487,7 +321,6 @@ void TFlowProcess::onSrcGone()
         btc_comm = nullptr;
     }
 
-
     in_frames_ro.clear();
 }
 
@@ -499,30 +332,42 @@ void TFlowProcess::onDisconnect()
 {
 }
 
+int TFlowProcess::onCustomMsgStreamer(const TFlowBufPck::pck& in_msg)
+{
+    // Receive some packets from a client.
+    if (in_msg.hdr.id <= TFlowBufPck::TFLOWBUF_MSG_CUSTOM_) return 0;
+
+    // Return -1 to close the cli_port
+
+#if CODE_BROWSE
+        TFlowMilesi::onCaptureMsgRcv(in_msg);
+        TFlowFixar::onCaptureMsgRcv(in_msg);
+#endif
+    return 0;
+}
+
+int TFlowProcess::onBufStreamer(TFlowBuf &buf)
+{
+    // Called on every received video frame.
+    // Custom submodules can do some work here.
+    // For ex. add custom data to frame's AUX section.
+
+    return 0;
+}
+
 void TFlowProcess::onSrcReady()
 {
     algo = TFlowAlgo::createAlgoInstance(in_frames_ro);
 
-    cv::Size frame_size(in_frames_ro[0].cols, in_frames_ro[0].rows);
-
+#if BTC_MOUSE
     btc_comm = new TFlowBtc(context,
         std::bind(&TFlowProcess::onBtcMsg, this, std::placeholders::_1));
+#endif
 
     int dashboard_w, dashboard_h;
     algo->getDashboardFrameSize(&dashboard_w, &dashboard_h);
 
-#if FIFO_STREAMER
-    /* Note: In case of Streamer reuse existing fifo for
-     *       different Tflow Capture connection (for ex. Capture was
-     *       closed and reopened), the gstreamer at another fifo's end
-     *       generates video with delay >1sec. Therefore, the gstreamer
-     *       need to be restarted. Closing TFlowStreamer will close
-     *       gstreamer if active.
-     * TODO: replace with Glib message/event to APP
-     */
-    fifo_streamer = new TFlowStreamer();
-
-#elif WS_STREAMER
+#if WS_STREAMER
     
     const TFlowWSStreamerCfg::cfg_ws_streamer* ws_streamer_cfg = 
         (TFlowWSStreamerCfg::cfg_ws_streamer*)ctrl.cmd_flds_config.ws_streamer.v.ref;
@@ -537,11 +382,14 @@ void TFlowProcess::onSrcReady()
     udp_streamer = new TFlowUDPVStreamer(context, dashboard_w, dashboard_h, udp_streamer_cfg);
 
 #elif VSTREAM_STREAMER
-    //streamer = new TFlowStreamerProcess(this, context, 
-    //    dashboard_w,
-    //    dashboard_h,
-    //    V4L2_PIX_FMT_BGR24,
-    //    0);
+    streamer = new TFlowStreamerProcess(
+        context, 
+        dashboard_w,
+        dashboard_h,
+        V4L2_PIX_FMT_ABGR32, //V4L2_PIX_FMT_NV12,
+        0,
+        std::bind(&TFlowProcess::onBufStreamer, this, std::placeholders::_1),
+        std::bind(&TFlowProcess::onCustomMsgStreamer, this, std::placeholders::_1));
 #endif
 }
 
@@ -567,7 +415,7 @@ void TFlowProcess::onSrcReadyPlayer()
     onSrcReady();
 }
 
-void TFlowProcess::onSrcReadyCam(TFlowBufPck::pck_fd* src_info)
+void TFlowProcess::onSrcReadyCam(const TFlowBufPck::pck_fd* src_info)
 {
     uint32_t mat_fmt;
 
@@ -589,10 +437,17 @@ void TFlowProcess::onSrcReadyCam(TFlowBufPck::pck_fd* src_info)
     onSrcReady();
 }
 
+TFlowStreamerProcess::~TFlowStreamerProcess()
+{
+    if (shm_fd != -1) {
+        shm_unlink("/tflow-process-shm");
+    }
+}
+
 int TFlowStreamerProcess::shmQueueBuffer(int buff_idx)
 {
     // Buffer returned by TFlowBufSrv
-    shm_tbl[buff_idx].owner_player = 1;
+    shm_tbl[buff_idx].owner_streamer = 1;
     return 0;
 }
 
@@ -601,7 +456,7 @@ int TFlowStreamerProcess::shmQuery()
     shm_tbl = (struct shm_entry*)g_malloc(buffs_num * sizeof(struct shm_entry));
 
     // Allocate shared memory buffer - local equivalent of v4l2 buffer
-    shm_fd = shm_open("/tflow-process-shm", O_CREAT | O_EXCL | O_RDWR, S_IWUSR);
+    shm_fd = shm_open("/tflow-process-shm", O_CREAT | O_RDWR, S_IWUSR); // O_EXCL | 
     if (shm_fd == -1) {
         g_warning("Can't open shm - %s (%d)\r\n", strerror(errno), errno);
         return -1;
@@ -625,10 +480,6 @@ int TFlowStreamerProcess::shmQuery()
      *         ....
      *   gap       0xCAFEFFFF
      */
-
-    long frame_size = frame_width * frame_height *
-        (frame_format == V4L2_PIX_FMT_GREY) ? 1 : 
-        (frame_format == V4L2_PIX_FMT_BGR24) ? 3 : 0;
 
     long total_mem = 0;
     total_mem += frame_size;
@@ -654,7 +505,7 @@ int TFlowStreamerProcess::shmQuery()
         shm_tbl[i].data = shm_wr_ptr;                   shm_wr_ptr += frame_size;
         *(uint32_t*)shm_wr_ptr = 0xCAFE0002 + i * 0x10; shm_wr_ptr += sizeof(uint32_t);
         shm_tbl[i].aux_data = shm_wr_ptr;               shm_wr_ptr += aux_data_len;
-        shm_tbl[i].owner_player = 1;
+        shm_tbl[i].owner_streamer = 1;
         *(uint32_t*)shm_wr_ptr = 0xCAFE0003 + i * 0x10; shm_wr_ptr += sizeof(uint32_t);
     }
     *(uint32_t*)shm_wr_ptr = 0xCAFEFFFF;
@@ -667,10 +518,13 @@ int TFlowStreamerProcess::getNextBufferIdx()
     int free_buff_idx = -1;
     // Loop over all buffers and get 1st available
     // Fill it and pass to streamer
+
+    // TODO: Use TFlowBuf instead of shm_tbl
     for (int i = 0; i < buffs_num; i++) {
         struct shm_entry* shm = &shm_tbl[i];
-        if (shm->owner_player) {
+        if (shm->owner_streamer) {
             free_buff_idx = i;
+            shm->owner_streamer = 0;
             break;
         }
     }
@@ -699,12 +553,19 @@ void TFlowStreamerProcess::consume(int buff_idx)
     struct timespec tp;
     struct timeval  now_ts;
 
-    assert(buff_idx < buffs_num);
+    assert(buff_idx < buffs_num && buff_idx >= 0);
 
     struct shm_entry* shm = &shm_tbl[buff_idx];
-    shm->owner_player = 0;
+    shm->owner_streamer = 0;
 
+    // SYNC probably is useless on Linux ...
     msync(shm_obj, shm_size, MS_SYNC);
+    /*  TODO: 1. Try to use MS_ASYNC  because of the following notes:
+              Since Linux 2.6.19, MS_ASYNC is in fact a no-op, since the kernel
+              properly tracks dirty pages and flushes them to storage as
+              necessary.
+              2. Measure SYNC execution time.
+     */
 
     clock_gettime(CLOCK_MONOTONIC, &tp);
     now_ts.tv_sec = tp.tv_sec;

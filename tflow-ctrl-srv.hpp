@@ -12,10 +12,10 @@
 class TFlowCtrlSrv {
 public:
 
-    TFlowCtrlSrv(const std::string& my_name, const std::string& srv_sck_name, MainContextPtr context);
+    TFlowCtrlSrv(const std::string &my_name, const std::string &srv_sck_name, MainContextPtr context);
     ~TFlowCtrlSrv();
     int StartListening();
-    void onIdle(struct timespec now_ts);
+    void onIdle(const struct timespec &now_ts);
 
     virtual int onCliPortConnect(int fd) { return 0; };
     virtual void onCliPortError(int fd) {};
@@ -30,6 +30,7 @@ public:
 #endif
 
     MainContextPtr context;
+    
     std::string my_name;
     struct timespec last_idle_check_ts;
 

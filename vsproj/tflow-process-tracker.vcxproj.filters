@@ -83,6 +83,9 @@
     <ClCompile Include="..\video-cond\tflow-vcond.cpp">
       <Filter>VideoConditioning</Filter>
     </ClCompile>
+    <ClCompile Include="..\tflow-buf.cpp">
+      <Filter>Shared\Buf</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\tracker\tflow-trck.hpp">
@@ -132,7 +135,6 @@
     <ClInclude Include="..\tflow-player.hpp" />
     <ClInclude Include="..\tflow-process.hpp" />
     <ClInclude Include="..\tflow-render.hpp" />
-    <ClInclude Include="..\tflow-streamer.hpp" />
     <ClInclude Include="..\tflow-tracelog.hpp" />
     <ClInclude Include="..\tracker\tflow-trck-imu.hpp" />
     <ClInclude Include="..\tflow-ctrl-process.hpp" />
