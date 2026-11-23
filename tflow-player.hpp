@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
-#include <unistd.h>
+
 #include <stddef.h>
 #include <memory.h>
 #include <errno.h>
@@ -13,10 +13,18 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+
+#if _WIN32
+#else
+#include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#endif
 
 #include <jpeglib.h>
+
+#include "tflow-glib.hpp"
+#include "tflow-player-cfg.hpp"
 
 class MJPEGCapture
 {
@@ -56,10 +64,6 @@ public:
 
     int aux_data_len;
     char aux_data_in[1024];
-/*
-    TFlowImu::ap_imu_v2 in_imu_v2;      // RT.2 contains IMU_v2 which isn't stored in frame info, thus addition memory needs to be allocated
-    TFlowImu::ap_imu_v3 in_imu_v3;      // RT.2 contains IMU_v3 which isn't stored in frame info, thus addition memory needs to be allocated
-*/
 
     int setup(int buffs_num);
     void clean();
@@ -82,10 +86,21 @@ private:
         uint32_t aux_data_len;
         uint32_t jpeg_sz;
     };
+    struct tflow_mjpeg_frame_rt3 {
+        char sign[4];
+        uint32_t src_id;
+        struct timeval ts;
+        uint32_t width;
+        uint32_t height;
+        uint32_t format;
+        uint32_t aux_data_len;
+        uint32_t jpeg_sz;
+    };
 
     union tflow_mjpeg_frame {
         char sign[4];
         struct tflow_mjpeg_frame_rt2 v2;
+        struct tflow_mjpeg_frame_rt3 v3;
     };
 
 #pragma pack(pop)
@@ -120,21 +135,21 @@ public:
         REWIND
     };
     
-    TFlowPlayer(TFlowProcess* app, MainContextPtr context, const TFlowCtrlProcess::cfg_player* cfg, int buffs_num,
+    TFlowPlayer(MainContextPtr context, const TFlowPlayerCfg::cfg_player* cfg, int buffs_num,
             std::function<void(std::shared_ptr<TFlowBufPck> sp_pck)> app_onFrame,
             std::function<void()> app_onSrcReady,
             std::function<void()> app_onSrcGone);
     ~TFlowPlayer();
     
-    TFlowProcess* app;
-    const TFlowCtrlProcess::cfg_player* cfg;
+    const TFlowPlayerCfg::cfg_player* cfg;
 
     bool onIdle(struct timespec now_ts);
-    bool onTick();
+    void onTickWin();
+    bool onTickGlib();
+
     bool onTickNextFrame();
     void onAction(ACTION action);
     int onDir(const json11::Json& j_in_params, json11::Json::object& j_out_params);
-    int onCfg(const json11::Json& j_in_params, json11::Json::object& j_out_params);
 
     int Init(const char* media_file_name);
     void Deinit();
@@ -167,13 +182,13 @@ public:
 
     const char* curr_state;
     const char* getCurrentState() { return curr_state; }
-    double getFrameRate() { return 50; }
+    float getFrameRate() { return 50.f; }
 
     int is_play_state()  { return (0 == strcmp(curr_state, play_str )); }
     int is_pause_state() { return (0 == strcmp(curr_state, pause_str)); }
     int is_off_state()   { return (0 == strcmp(curr_state, off_str  )); }
 
-    int rewind(int new_frame) { return (new_frame != mjpegCapture.curr_frame) ? mjpegCapture.rewind(new_frame) : 0; }
+    int rewind(int new_frame);
 
     std::function<void(std::shared_ptr<TFlowBufPck> sp_pck)> app_onFrame;
     std::function<void()> app_onSrcReady;
@@ -187,7 +202,11 @@ private:
 
     void setCurrentState(const char* new_state) { curr_state = new_state; }
 
+#if _WIN32
+    HANDLE h_fps_tick;
+#else
     TimeoutSourcePtr fps_tick_src;
+#endif
 
     MainContextPtr context;  // Context for pending events
 

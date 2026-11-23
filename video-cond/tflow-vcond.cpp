@@ -1,13 +1,17 @@
 #include "../tflow-build-cfg.hpp"
 
-#include <unistd.h>
+#if _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else 
+#endif
+
+//#include <unistd.h>
 #include <fcntl.h>
-#include <poll.h>
 
 #include <thread>
 
 #include <math.h>
-#include <glib-unix.h>
 
 #include <json11.hpp>
 
@@ -15,6 +19,7 @@
 #include <opencv2/gapi.hpp>
 #include <opencv2/gapi/render.hpp>
 
+#include "../tflow-glib.hpp"
 #include "../tflow-render.hpp"
 #include "tflow-vcond.hpp"
 
@@ -126,8 +131,15 @@ void TFlowVCond::onFrame(const cv::Mat& frame_in_ro, cv::Mat& frame_out)
         const float* phranges = hranges;
 
         // TODO: Find OCL version. Compare with SW one.
-        //       SW version for TWIN412 takes 13ms!
-        cv::calcHist(&frame_in_ro, 1, 0, Mat(), ihist, 1, &hsize, &phranges);
+        //       SW version for TWIN412 takes 13ms working in MMAP memory!
+        //       Working in a regular memory it takes 1ms!
+        //       So, copy to local memory + processing is much faster than
+        //       processing in MMAP.
+
+        frame_in_ro.copyTo(frame_out);
+        //cv::calcHist(&frame_in_ro, 1, 0, Mat(), ihist, 1, &hsize, &phranges);     // 13ms
+        cv::calcHist(&frame_out, 1, 0, Mat(), ihist, 1, &hsize, &phranges);         // 1ms
+
         updateIntensityHistogram();
     }
 
@@ -245,13 +257,13 @@ void TFlowVCond::updateScaleLine()
         Point2i lb = Point2i(c.x - dx, ihist_bottom_left.y); 
         if (lb.x < ihist_upper_left.x) {
             // Limit line by the histogram rectangle
-            lb.y -= (ihist_upper_left.x - lb.x) * ihist_scale_k;
+            lb.y -= (int)((double)(ihist_upper_left.x - lb.x) * ihist_scale_k);
             lb.x = ihist_upper_left.x;
         }
         Point2i ru = Point2i(c.x + dx, ihist_upper_left.y);  
         if (ru.x > ihist_bottom_right.x) {
             // Limit line by the histogram rectangle
-            ru.y += (ru.x - ihist_bottom_right.x) * ihist_scale_k;
+            ru.y += (int)((double)(ru.x - ihist_bottom_right.x) * ihist_scale_k);
             ru.x = ihist_bottom_right.x;
         }
         prims_ihist_line.emplace_back(draw::Line{ lb, ru, red });

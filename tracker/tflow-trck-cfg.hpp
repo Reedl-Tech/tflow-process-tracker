@@ -5,7 +5,9 @@
 #include "../tflow-pwm.hpp"
 
 #include "../video-cond/tflow-vcond-cfg.hpp"
+#include "../udp/tflow-udp-cfg.hpp"
 
+extern TFlowUDPCfg tflow_udp_gc_cfg;
 
 class TFlowTrackerUI : public TFlowCtrlUI {
     // see strftime()
@@ -155,6 +157,7 @@ public:
         TFlowCtrl::tflow_cmd_field_t   servo_pitch;
         TFlowCtrl::tflow_cmd_field_t   perfmon;
         TFlowCtrl::tflow_cmd_field_t   vcond;
+        TFlowCtrl::tflow_cmd_field_t   udp_gc;
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_tracker = {
         TFLOW_CMD_HEAD("Tracker"),
@@ -172,8 +175,8 @@ public:
         .optf_min_eig_thr      = { "optf_min_eig_thr",      TFlowCtrl::CFT_DBL,  0, {.dbl = 0.001} },
         .frame_rate_limit      = { "frame_rate_limit",      TFlowCtrl::CFT_NUM,  0, {.num =     0} },
         .select_snap_dist_sq   = { "select_snap_dist_sq",   TFlowCtrl::CFT_DBL,  0, {.dbl =    25} },
-        .pitch_hold_slow       = { "pitch_hold_slow",       TFlowCtrl::CFT_VNUM, 0, {.vnum = &pitch_hold_slow_value}, &ui_sl2_pitch_hold_slow },
-        .pitch_hold_fast       = { "pitch_hold_fast",       TFlowCtrl::CFT_VNUM, 0, {.vnum = &pitch_hold_fast_value}, &ui_sl2_pitch_hold_fast },
+        .pitch_hold_slow       = { "pitch_hold_slow",       TFlowCtrl::CFT_VNUM, 0, {.vnum = &pitch_hold_slow_value} },
+        .pitch_hold_fast       = { "pitch_hold_fast",       TFlowCtrl::CFT_VNUM, 0, {.vnum = &pitch_hold_fast_value} },
         .dbg_render            = { "dbg_render",            TFlowCtrl::CFT_NUM,  0, {.num =     0},  &ui_edit_def },
         .grid                  = { "grid",                  TFlowCtrl::CFT_STR,  0, {.str = nullptr} },
         .gftt_flytime          = { "gftt_flytime", TFlowCtrl::CFT_REF, 0, {.ref = &cmd_flds_cfg_trck_gftt_flytime.head         } },
@@ -182,6 +185,7 @@ public:
         .servo_pitch           = { "servo_pitch",  TFlowCtrl::CFT_REF, 0, {.ref = &tflow_servo_pitch_cfg.cmd_flds_cfg_servo_pitch.head  }, &ui_group_def },
         .perfmon               = { "perfmon",      TFlowCtrl::CFT_REF, 0, {.ref = &tflow_perfmon_cfg.cmd_flds_cfg_perfmon.head          }, &ui_group_def },
         .vcond                 = { "vcond",        TFlowCtrl::CFT_REF, 0, {.ref = &tflow_vcond_cfg.cmd_flds_cfg_vcond.head              }, &ui_group_def},
+        .udp_gc                = { "udp_gc",       TFlowCtrl::CFT_REF, 0, {.ref = &tflow_udp_gc_cfg.cmd_flds_cfg_udp.head               }, &ui_group_def},
         TFLOW_CMD_EOMSG
     };
 

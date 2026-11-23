@@ -27,5 +27,7 @@ public:
   static_cast<size_t>(!(sizeof(a) % sizeof(*(a)))))
 #endif
 
+// PRESC(0) execute on every pass
+// PRESC(-1) disabled
 #define PRESC(_x) static int presc##__COUNTER__##__func__ = 0;\
     if (0 == (presc##__COUNTER__##__func__++ & _x))

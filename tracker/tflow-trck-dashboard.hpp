@@ -1,8 +1,9 @@
 #pragma once
 #include <vector>
-#include <opencv2/opencv.hpp>
 
 #include "../tflow-tracelog.hpp"
+
+#include "../tflow-dashboard.hpp"
 
 #include "tflow-trck.hpp"
 
@@ -138,6 +139,9 @@ public:
     void render(std::vector<draw::Prim> &prims, 
         const TFlowImu::imu_milesi_v0 &imu, const TFlowTargeting &tgt, float camera_pitch_rad);
 
+    void render(std::vector<draw::Prim> &prims, 
+        const TFlowImu::imu_milesi_v2 &imu, const TFlowTargeting &tgt);
+
     void renderPitch  (std::vector<draw::Prim> &prims, float pitch_rad, float stimul, float assist);
     void renderCamera (std::vector<draw::Prim> &prims, float pitch_rad, float stimul, float assist);
     void renderRoll   (std::vector<draw::Prim> &prims, float pitch_rad, float stimul, float assist);
@@ -167,7 +171,8 @@ public:
    
 };
 
-class TFlowTrackerDashboard {
+
+class TFlowTrackerDashboard : public TFlowDashboard {
     
 public:
     TFlowTrackerDashboard(const TFlowTracker *trck, 
@@ -181,16 +186,6 @@ public:
     /* Render Map specific - GUI callbacks */
     void onPointer(int event, int x, int y, int flags);
 
-    void addCamFrameZoomed(const cv::Rect2f grid_sector);
-    void addCamFrame(const cv::Mat& cam_frame_bw);
-
-    /* ======== Algo overrides ======= */
-    void initDashboardFrame(uint8_t* data_ptr);
-    void initDashboardFrame(TFlowBuf * buf);
-    void getDashboardFrameBuff(const uint8_t** buff, size_t* buff_len);
-    void getDashboardFrameSize(int* w, int* h);
-    /* =============================== */
-
     int onConfigGrid(const std::string &grid_cfg);
     
     void onConfig(const json11::Json& j_in_params, json11::Json::object& j_out_params);
@@ -198,37 +193,13 @@ public:
     cv::Rect2f getGridSector();
     
     void renderGrid(std::vector<cv::gapi::wip::draw::Prim>& prims);
-    void renderIntensityHistogramm(std::vector<draw::Prim> &prims);
-    void render();
     
-    // void instrUpdate(const TFlowImu& imu);
-
-    cv::Mat frameMain;
-    cv::Mat frameMainY;     // Mat wrapper for Y plane of frameMain
-    cv::Mat frameMainUV;    // Mat wrapper for UV plane of frameMain
-  
-    cv::Size frame_size_nv12;
-    cv::Size frame_size_Y;
-    cv::Size frame_size_UV;
-
-    cv::Rect frameCamRect;  // Rectangle within frameMain where camera frame will be rendered to.
-
-    cv::Mat frameCamY;
-    cv::Mat frameCamUV;
-
 #if OFFLINE_PROCESS
     // imshow can't render NV12
     Mat frameMainBGR;
 #endif
 
     int instr_refresh;
-
-    cv::Size2f frame_size;  // Copy of config param for more convenient access. 
-                                  // Att!: It is not the same as the Camera frame size.
-                                  //       Dashboard size might be smaller or bigger
-                                  //       than an input frame from a camera. 
-
-    std::vector<cv::gapi::wip::draw::Prim> render_prims;
 
 #if BTC
     /* Preview mode */
@@ -241,10 +212,10 @@ public:
     Point2i preview_selected = Point2i(-1, -1);
     Point2i preview_cursor = Point2i(-1, -1);
 #endif
-    int preview_force_frame = 0;    // Initiate frame processing even if it wasn't changed.
+    int preview_force_frame;    // Initiate frame processing even if it wasn't changed.
                                     // Is used for handling user mouse activity over freezed frame.
 
-    void instrRender();
+    void instrRender(std::vector<draw::Prim>& prims);
 
 private:
     const TFlowTrackerCfg::cfg_trck_dashboard* cfg;

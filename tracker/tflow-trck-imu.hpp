@@ -6,12 +6,7 @@ class TFlowImu {
 
 public:
 
-    TFlowImu() {
-        ts = 0;
-        memset(&ap_imu, 0, sizeof(ap_imu));
-        is_valid = 0;
-    }
-
+    TFlowImu();
 // packet received from TFlow Capture or TFlowPlayer
 #pragma pack(push,1)
 
@@ -41,9 +36,37 @@ public:
         float gimbal_qz;
         uint16_t gimbal_flags;     /* GIMBAL_DEVICE_FLAGS_YAW_IN_VEHICLE_FRAME or GIMBAL_DEVICE_FLAGS_YAW_IN_EARTH_FRAME */
 
-    } ap_imu;
+    } ap_imu_milesi_v0;
+
+    struct imu_milesi_v2 {
+        
+        uint32_t sign;        // MLS2   0x494D5532
+        uint32_t tv_sec;      // Local timestamp
+        uint32_t tv_usec;     // Local timestamp
+
+        /* Direct translation from Mavlink ATTITUDE */ 
+        float roll;         /*< [rad] Roll angle  (-pi..+pi) */
+        float pitch;        /*< [rad] Pitch angle (-pi..+pi) */
+        float yaw;          /*< [rad] Yaw angle   (-pi..+pi) */
+
+        float altitude_local;
+        float altitude_msl;
+        float altitude_terrain;
+
+        float loc_ned_x;
+        float loc_ned_y;
+        float loc_ned_z;
+
+        uint8_t gps_fix_type;
+        float   gps_lat;
+        float   gps_lon;
+        float   gps_alt_msl;
+
+        float   airspeed;
+    } ap_imu_milesi;                              
 
 #pragma pack(pop)
+
     uint32_t ts;
 
     int is_valid;

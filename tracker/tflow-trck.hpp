@@ -30,6 +30,8 @@
 
 #include "../tflow-buf.hpp"
 
+#include "../udp/tflow-udp.hpp"
+
 #include "tflow-trck-imu.hpp"
 #include "tflow-trck-feature.hpp"
 #include "tflow-trck-gftt.hpp"
@@ -144,6 +146,8 @@ private:
     cv::Mat in_frame_local;             // Local copy of input frame - can be modified. Normally by Video Conditioning (vc)
                                         // TODO: Try use UMat instead.
 
+    uint32_t frame_seq_prev;
+
     std::vector<cv::Mat> pyrA;
     std::vector<cv::Mat> pyrB;
     std::vector<cv::Mat> pyrC;
@@ -154,15 +158,17 @@ private:
 
     cv::Size frame_size;
 
-    void onFrameAlgo(cv::Mat& frame_curr);
-
 public:
 
     /* ======== TFlow Algo overrides ========= */
+    void onIdle(const struct timespec &now_ts);
+
     void onPointer(int event, int x, int y, int flags);
     // void onFrame(std::shared_ptr<TFlowBufPck> sp_pck_in);    // Main entry point
-    void onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data_buf, uint32_t aux_data_len);
-    void onRewind();                                            // Called on player rewind
+    void onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data_buf, 
+        uint32_t aux_data_len, uint32_t seq);
+
+    void onRewind(TFlowAlgo::tflow_cfg_algo *rw_cfg);           // Called on player rewind
     TFlowBufPck::pck& getMsg(int* msg_len);                     // Returns the message to send back.
 
     /* Dashboard specific Algo overrides */
@@ -172,13 +178,13 @@ public:
         { dashboard.getDashboardFrameBuff(buff, buff_len); };
     void initDashboardFrame(uint8_t* data_ptr) 
         { dashboard.initDashboardFrame(data_ptr); };            // Create/Init Dashboard from provided data buffer.
-    void initDashboardFrame(TFlowBuf * buf) 
-        { dashboard.initDashboardFrame(buf); };            // Create/Init Dashboard from provided data buffer.
 
     int onConfig(json11::Json::object& j_out_params, TFlowAlgo::tflow_cfg_algo *rw_cfg);
     /* ======================================= */
 
     void getAuxData(const uint8_t* aux_data, uint32_t aux_data_len);
+
+    void onFrameAlgo(cv::Mat& frame_curr);
 
     static constexpr int TFLOWBUF_MSG_CUSTOM_TRACKER = (TFlowBufPck::TFLOWBUF_MSG_CUSTOM_ + 1);    // 0x81
 
@@ -255,10 +261,12 @@ public:
 
     // void dashboardUpdate();
     // Render debug info to the provided frame
-    void RenderDebugInfo();
-    void renderPitchHold(std::vector<draw::Prim>& prims);
-    void renderPreviewCursor(std::vector<draw::Prim>& prims);
-    void renderGrid(std::vector<draw::Prim>& prims);
+    void RenderDebugInfo(std::vector<draw::Prim> &prims);
+    void renderPitchHold(const cv::Rect &cam_off, std::vector<draw::Prim>& prims);
+    void renderPreviewCursor(const cv::Rect &cam_off, std::vector<draw::Prim>& prims);
+    void renderGrid(const cv::Rect &cam_off, std::vector<draw::Prim>& prims);
+
+    void updateGCdata();
 
     TFlowPerfMon perf_mon;
 
@@ -270,5 +278,27 @@ public:
 
     void targetSelection();
     void targetOnButtEvent(uint16_t event);
+
+#pragma pack(push, 1)
+    struct TrinityData {
+        uint32_t sign;
+        float lon;          // precision ~0.1m
+        float lat;          // precision ~0.1m
+        float alt;          // m
+        float air_speed;    // m/s
+        float roll;         // rad
+        float pitch;        // rad
+        float yaw;          // rad
+        float servo1;       // Servo motor position 0..1
+    } trinity_data;
+
+    struct GCData {
+        uint32_t sign;
+        float servo1;       // Servo motor position 0..1
+    } gc_data;
+#pragma(pop)
+
+    TFlowUDP udp_gc;    // Ground Control UDP connection
+    void udp_gc_onRX(const uint8_t *data, size_t len);
 };
 

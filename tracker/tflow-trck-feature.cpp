@@ -229,7 +229,7 @@ int TFlowFeature::CalcQuality(double gftt_qlty, int contrast)
     return 0;
 }
 
-void TFlowFeature::RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, TFlowFeature::RenderDbg _cfg)
+void TFlowFeature::RenderFeature(const cv::Rect &cam_off, std::vector<cv::gapi::wip::draw::Prim>& prims, TFlowFeature::RenderDbg _cfg)
 {
     int cfg = (int)_cfg;
 
@@ -275,34 +275,52 @@ void TFlowFeature::RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, 
         switch (shape) {
         case FEAT_SHAPE_RECT:
             prims.emplace_back(
-                draw::Rect{cv::Rect{(int)(pos.x - size / 2), (int)(pos.y - size / 2), size, size}, color});
+                draw::Rect{ 
+                    rect2f_offset(cam_off, cv::Rect{(int)(pos.x - size / 2), (int)(pos.y - size / 2), size, size}), color});
             break;
 
         case FEAT_SHAPE_CROSS:
             prims.emplace_back(
-                draw::Line{{(int)(pos.x - size / 2), (int)(pos.y - 1) }, {(int)(pos.x + size / 2), (int)(pos.y - 1) }, white});
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x - size / 2), (int)(pos.y - 1) }),
+                    point2f_offset(cam_off, {(int)(pos.x + size / 2), (int)(pos.y - 1) }), white});
             prims.emplace_back(
-                draw::Line{{(int)(pos.x - 1), (int)(pos.y - size / 2)}, {(int)(pos.x - 1), (int)(pos.y + size / 2)}, white});
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x - 1), (int)(pos.y - size / 2)}),
+                    point2f_offset(cam_off, {(int)(pos.x - 1), (int)(pos.y + size / 2)}), white});
             prims.emplace_back(
-                draw::Line{{(int)(pos.x - size / 2), (int)(pos.y) }, {(int)(pos.x + size / 2), (int)(pos.y) }, color});
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x - size / 2), (int)(pos.y) }),
+                    point2f_offset(cam_off, {(int)(pos.x + size / 2), (int)(pos.y) }), color});
             prims.emplace_back(
-                draw::Line{{(int)(pos.x), (int)(pos.y - size / 2)}, {(int)(pos.x), (int)(pos.y + size / 2)}, color});
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x), (int)(pos.y - size / 2)}), 
+                    point2f_offset(cam_off, {(int)(pos.x), (int)(pos.y + size / 2)}), color});
             break;
 
         case FEAT_SHAPE_DIAM:
             prims.emplace_back(
-                draw::Line{{(int)(pos.x - size / 2), (int)(pos.y + 0)}, {(int)(pos.x + 0), (int)(pos.y - size / 2)}, color, line_width});
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x - size / 2), (int)(pos.y + 0)}),
+                    point2f_offset(cam_off, {(int)(pos.x + 0), (int)(pos.y - size / 2)}), color, line_width});
             prims.emplace_back(
-                draw::Line{{(int)(pos.x + 0), (int)(pos.y - size / 2)}, {(int)(pos.x + size / 2), (int)(pos.y + 0)}, color, line_width});
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x + 0), (int)(pos.y - size / 2)}), 
+                    point2f_offset(cam_off, {(int)(pos.x + size / 2), (int)(pos.y + 0)}), color, line_width});
             prims.emplace_back(
-                draw::Line{{(int)(pos.x + size / 2), (int)(pos.y + 0)}, {(int)(pos.x + 0), (int)(pos.y + size / 2)}, color, line_width});
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x + size / 2), (int)(pos.y + 0)}),
+                    point2f_offset(cam_off, {(int)(pos.x + 0), (int)(pos.y + size / 2)}), color, line_width});
             prims.emplace_back(
-                draw::Line{{(int)(pos.x + 0), (int)(pos.y + size / 2)}, {(int)(pos.x - size / 2), (int)(pos.y + 0)}, color, line_width});
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x + 0), (int)(pos.y + size / 2)}),
+                    point2f_offset(cam_off, {(int)(pos.x - size / 2), (int)(pos.y + 0)}), color, line_width});
             break;
 
         case FEAT_SHAPE_CIRC:
             prims.emplace_back(
-                draw::Circle{{(int)(pos.x), (int)(pos.y)}, size / 2, color});
+                draw::Circle{
+                    point2f_offset(cam_off, {(int)(pos.x), (int)(pos.y)}), size / 2, color});
             break;
         }
 
@@ -318,10 +336,158 @@ void TFlowFeature::RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, 
 
     int lbl_ancor_idx = 0;
     Point2f lbl_ancor_pos[4] = {
-        {pos.x + size + 2, pos.y           },       //   3 ____ 0
-        {pos.x + size + 2, pos.y + size + 4},       //    |    |
-        {pos.x - 30      , pos.y + size + 4},       //    |____|
-        {pos.x - 30      , pos.y           },       //   2      1
+        point2f_offset(cam_off, {pos.x + size + 2, pos.y           }),       //   3 ____ 0
+        point2f_offset(cam_off, {pos.x + size + 2, pos.y + size + 4}),       //    |    |
+        point2f_offset(cam_off, {pos.x - 30      , pos.y + size + 4}),       //    |____|
+        point2f_offset(cam_off, {pos.x - 30      , pos.y           }),       //   2      1
+    };
+
+    char txt[8] = "";
+    auto font = cv::FONT_HERSHEY_PLAIN;
+
+    if (cfg & (int)RenderDbg::ID) {
+        snprintf(txt, sizeof(txt), "%d", id);
+
+        prims.emplace_back(draw::Text{
+            {txt}, lbl_ancor_pos[lbl_ancor_idx++], font, 0.8, color });     // Use feature shape color    
+    }
+
+#if 0
+    if (cfg_render_dbg & (int)RenderDbg::TIME) {
+        char time_spent_str[16] = "";
+        snprintf(time_spent_str, sizeof(time_spent_str), "gftt %5.1fms", time_spent_ms);
+        String time_spent_label = String(time_spent_str);
+
+        prims.emplace_back(draw::Text{
+                    time_spent_label, Point2f(10, -10),
+                    cv::FONT_HERSHEY_PLAIN, 1.2, white });
+
+        prims.emplace_back(draw::Text{
+                    time_spent_label, Point2f(11, -11),
+                    cv::FONT_HERSHEY_PLAIN, 1.2, red });
+    }
+#endif
+
+    if (1 /*is_new*/) {
+        if (cfg & (int)RenderDbg::QUALITY) {
+            snprintf(txt, sizeof(txt), "%d", quality_scores);
+
+            prims.emplace_back(draw::Text{
+                {txt}, lbl_ancor_pos[lbl_ancor_idx++], font, 0.8, blue });
+        }
+    }
+}
+void TFlowFeature::RenderFeature2(const cv::Rect &cam_off, std::vector<cv::gapi::wip::draw::Prim>& prims, TFlowFeature::RenderDbg _cfg)
+{
+    int cfg = (int)_cfg;
+
+    static int off_size = 1;
+    static int line_width = 1;
+
+    int off = is_preview_sel ? 1 : 0;
+
+    auto color2 =
+        is_preview_sel ? FEAT_COLOR_OFF_PREVIEW_SEL :
+        blue;
+
+    auto color =
+        is_preview_sel ? FEAT_COLOR_PREVIEW_SEL :
+        is_preview     ? FEAT_COLOR_PREVIEW :
+        is_new         ? FEAT_COLOR_NEW :
+        is_not_found   ? FEAT_COLOR_NOT_FOUND :
+        is_out_of_fov  ? FEAT_COLOR_OUT_OF_CELLS :
+        is_sparsed     ? FEAT_COLOR_OUT_OF_CELLS :
+        red;
+
+    auto size =
+        is_preview_sel ? FEAT_SIZE_PREVIEW_SEL :
+        is_preview     ? FEAT_SIZE_PREVIEW :
+        is_new         ? FEAT_SIZE_NEW :
+        is_not_found   ? FEAT_SIZE_NOT_FOUND :
+        is_out_of_fov  ? FEAT_SIZE_OUT_OF_CELLS :
+        is_sparsed     ? FEAT_SIZE_OUT_OF_CELLS :
+        32;
+
+    auto shape =
+        is_preview_sel ? FEAT_SHAPE_PREVIEW_SEL :
+        is_preview     ? FEAT_SHAPE_PREVIEW :
+        is_new         ? FEAT_SHAPE_NEW :
+        is_not_found   ? FEAT_SHAPE_NOT_FOUND :
+        is_out_of_fov  ? FEAT_SHAPE_OUT_OF_CELLS :
+        is_sparsed     ? FEAT_SHAPE_OUT_OF_CELLS :
+        FEAT_SHAPE_DIAM;
+
+    cv::Point2f pos = this->pos;
+
+    do {
+        switch (shape) {
+        case FEAT_SHAPE_RECT:
+            prims.emplace_back(
+                draw::Rect{ 
+                    rect2f_offset(cam_off, cv::Rect{(int)(pos.x - size / 2), (int)(pos.y - size / 2), size, size}), color});
+            break;
+
+        case FEAT_SHAPE_CROSS:
+            prims.emplace_back(
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x - size / 2), (int)(pos.y - 1) }),
+                    point2f_offset(cam_off, {(int)(pos.x + size / 2), (int)(pos.y - 1) }), white});
+            prims.emplace_back(
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x - 1), (int)(pos.y - size / 2)}),
+                    point2f_offset(cam_off, {(int)(pos.x - 1), (int)(pos.y + size / 2)}), white});
+            prims.emplace_back(
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x - size / 2), (int)(pos.y) }),
+                    point2f_offset(cam_off, {(int)(pos.x + size / 2), (int)(pos.y) }), color});
+            prims.emplace_back(
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x), (int)(pos.y - size / 2)}), 
+                    point2f_offset(cam_off, {(int)(pos.x), (int)(pos.y + size / 2)}), color});
+            break;
+
+        case FEAT_SHAPE_DIAM:
+            prims.emplace_back(
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x - size / 2), (int)(pos.y + 0)}),
+                    point2f_offset(cam_off, {(int)(pos.x + 0), (int)(pos.y - size / 2)}), color, line_width});
+            prims.emplace_back(
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x + 0), (int)(pos.y - size / 2)}), 
+                    point2f_offset(cam_off, {(int)(pos.x + size / 2), (int)(pos.y + 0)}), color, line_width});
+            prims.emplace_back(
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x + size / 2), (int)(pos.y + 0)}),
+                    point2f_offset(cam_off, {(int)(pos.x + 0), (int)(pos.y + size / 2)}), color, line_width});
+            prims.emplace_back(
+                draw::Line{
+                    point2f_offset(cam_off, {(int)(pos.x + 0), (int)(pos.y + size / 2)}),
+                    point2f_offset(cam_off, {(int)(pos.x - size / 2), (int)(pos.y + 0)}), color, line_width});
+            break;
+
+        case FEAT_SHAPE_CIRC:
+            prims.emplace_back(
+                draw::Circle{
+                    point2f_offset(cam_off, {(int)(pos.x), (int)(pos.y)}), size / 2, color});
+            break;
+        }
+
+        if (off) {
+            pos.x += off_size;
+            pos.y += off_size;
+            color = color2;
+            off = 0;
+            continue;
+        }
+        break;
+    } while(1);
+
+    int lbl_ancor_idx = 0;
+    Point2f lbl_ancor_pos[4] = {
+        point2f_offset(cam_off, {pos.x + size + 2, pos.y           }),       //   3 ____ 0
+        point2f_offset(cam_off, {pos.x + size + 2, pos.y + size + 4}),       //    |    |
+        point2f_offset(cam_off, {pos.x - 30      , pos.y + size + 4}),       //    |____|
+        point2f_offset(cam_off, {pos.x - 30      , pos.y           }),       //   2      1
     };
 
     char txt[8] = "";

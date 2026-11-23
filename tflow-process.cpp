@@ -23,7 +23,6 @@
 #include <opencv2/gapi.hpp>
 #include <opencv2/gapi/render.hpp>
 
-#include "tflow-btc.hpp"
 #include "tflow-process.hpp"
 
 using namespace json11;
@@ -34,13 +33,12 @@ namespace draw = cv::gapi::wip::draw;
 
 #define IDLE_INTERVAL_MSEC 100
 
+
 TFlowProcess::TFlowProcess(MainContextPtr _context, const std::string cfg_fname) :
-    buf_cli(nullptr),           // ATT: Order is important here!!! Keep initialization order according to declaration one.
+    buf_cli(nullptr),           // ATT: Order is important here!!! Keep initialization order according to one used in declaration .
     player(nullptr),
     algo(nullptr),
-    ws_streamer(nullptr),
-    udp_streamer(nullptr),
-    btc_comm(nullptr),
+    
     context(_context),
     ctrl(*this, cfg_fname)
 {
@@ -115,6 +113,10 @@ bool TFlowProcess::onIdle()
         player->onIdle(now_ts);
     }
 
+    if (algo) {
+        algo->onIdle(now_ts);
+    }
+
     if (!buf_cli && !player) {
         static int presc_cnt = 0;
         if ((++presc_cnt & 0x1f) == 0) {
@@ -128,9 +130,6 @@ bool TFlowProcess::onIdle()
 
     ctrl.ctrl_srv.onIdle(now_ts);
 
-    if (btc_comm) {
-        btc_comm->onIdle(now_ts);
-    }
 
     return true;
 }
@@ -214,7 +213,7 @@ int TFlowProcess::setVideoSrc(const char* video_src)
     }
     else if (video_src && strcmp(video_src, "playback") == 0) {
         if (!player) {
-            player = new TFlowPlayer(this, context, &ctrl.cmd_flds_cfg_player, 4,
+            player = new TFlowPlayer(context, &tflow_player_cfg.cmd_flds_cfg_player, 4,
                 std::bind(&TFlowProcess::onFrame,          this, std::placeholders::_1),   // TFlowPlayer::app_onFrame()
                 std::bind(&TFlowProcess::onSrcReadyPlayer, this),                          // TFlowPlayer::app_onSrcReady()
                 std::bind(&TFlowProcess::onSrcGone,        this));                         // TFlowPlayer::app_onSrcGone()
@@ -230,17 +229,9 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
 
     if (!sp_pck) return;
 
-#if FIFO_STREAMER
-    algo->initDashboardFrame((uint8_t*)nullptr);
-#elif WS_STREAMER 
-
-    algo->initDashboardFrame((uint8_t*)nullptr);
-
-#elif UDP_STREAMER 
-
-    algo->initDashboardFrame((uint8_t*)nullptr);
-
-#elif VSTREAM_STREAMER
+#if VSTREAM_STREAMER
+    // Att: data passed by pointer only, without length assuming the dashboard
+    //      streamer were created with the same width/height/format parameters.
     int free_buff_idx = streamer->getNextBufferIdx();
     algo->initDashboardFrame(streamer->getDataByIdx(free_buff_idx));
 #endif
@@ -253,7 +244,7 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
     const Mat& frame_curr_ro = in_frames_ro.at(pck_curr->buff_index);
                                                                    
     algo->onFrame(frame_curr_ro, aux_data, aux_data_len, pck_curr->seq);
-    
+                
     // If buffer client is connected, then send the result back to the 
     // frames buffers originator (for ex. tflow-capture).
     if (buf_cli && buf_cli->sck_state_flag.v == Flag::SET) {
@@ -264,31 +255,7 @@ void TFlowProcess::onFrame(std::shared_ptr<TFlowBufPck> sp_pck)
         }
     }
 
-#if UDP_STREAMER 
-
-    if (udp_streamer) {      
-        const uint8_t* buff;
-        size_t buff_len;
-        algo->getDashboardFrameBuff(&buff, &buff_len);
-
-        TFlowBuf* dashboard_buf = udp_streamer ? udp_streamer->getFreeBuffer() : nullptr;
-
-        if (dashboard_buf) {
-            memcpy(dashboard_buf->start, buff, buff_len);
-#if 0
-            udp_streamer->consumeBuffer(*dashboard_buf);
-#else
-            eventfd_write(udp_streamer->encoder->enqueue_input_fd, 1);
-#endif
-        }
-        else {
-            static int cnt = 0;
-            g_info("============== can't get free buffer %d =============", cnt++ );
-//            udp_streamer->encoder->recover_input(0);
-        }
-    }
-
-#elif VSTREAM_STREAMER
+#if VSTREAM_STREAMER
     streamer->consume(free_buff_idx);
 #endif
 
@@ -304,21 +271,6 @@ void TFlowProcess::onSrcGone()
     if (streamer) {
         delete streamer;
         streamer = nullptr;
-    }
-
-    if (ws_streamer) {
-        delete ws_streamer;
-        ws_streamer = nullptr;
-    }
-
-    if (udp_streamer) {
-        delete udp_streamer;
-        udp_streamer = nullptr;
-    }
-
-    if (btc_comm) {
-        delete btc_comm;
-        btc_comm = nullptr;
     }
 
     in_frames_ro.clear();
@@ -359,29 +311,10 @@ void TFlowProcess::onSrcReady()
 {
     algo = TFlowAlgo::createAlgoInstance(in_frames_ro);
 
-#if BTC_MOUSE
-    btc_comm = new TFlowBtc(context,
-        std::bind(&TFlowProcess::onBtcMsg, this, std::placeholders::_1));
-#endif
-
     int dashboard_w, dashboard_h;
     algo->getDashboardFrameSize(&dashboard_w, &dashboard_h);
 
-#if WS_STREAMER
-    
-    const TFlowWSStreamerCfg::cfg_ws_streamer* ws_streamer_cfg = 
-        (TFlowWSStreamerCfg::cfg_ws_streamer*)ctrl.cmd_flds_config.ws_streamer.v.ref;
-
-    ws_streamer = new TFlowWsVStreamer(context, dashboard_w, dashboard_h, ws_streamer_cfg);
-
-#elif UDP_STREAMER
-    
-    const TFlowUDPStreamerCfg::cfg_udp_streamer* udp_streamer_cfg = 
-        (TFlowUDPStreamerCfg::cfg_udp_streamer*)ctrl.cmd_flds_config.udp_streamer.v.ref;
-
-    udp_streamer = new TFlowUDPVStreamer(context, dashboard_w, dashboard_h, udp_streamer_cfg);
-
-#elif VSTREAM_STREAMER
+#if VSTREAM_STREAMER
     streamer = new TFlowStreamerProcess(
         context, 
         dashboard_w,
@@ -581,6 +514,7 @@ void TFlowStreamerProcess::onIdleStreamer(struct timespec now_ts)
     TFlowBufSrv::onIdle(now_ts);
 }
 
+#if 0
 void TFlowProcess::onBtcMsg(const char *btc_msg)
 {
     int event = 0;
@@ -620,3 +554,4 @@ void TFlowProcess::onBtcMsg(const char *btc_msg)
     flags |= cursor->ldown ? EVENT_FLAG_LBUTTON : 0;
     algo->onPointer(event, cursor->x, cursor->y, flags);    
 }
+#endif

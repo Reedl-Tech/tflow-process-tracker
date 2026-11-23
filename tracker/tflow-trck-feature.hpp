@@ -78,7 +78,8 @@ public:
     static int CalcContrast(const cv::Mat& frame);
     static int CalcQuality(double gftt_qlty, int contrast);
 
-    void RenderFeature(std::vector<cv::gapi::wip::draw::Prim>& prims, TFlowFeature::RenderDbg cfg);
+    void RenderFeature(const cv::Rect &off, std::vector<cv::gapi::wip::draw::Prim>& prims, TFlowFeature::RenderDbg cfg);
+    void RenderFeature2(const cv::Rect &off, std::vector<cv::gapi::wip::draw::Prim>& prims, TFlowFeature::RenderDbg cfg);
 
     TFlowTraceLog dbg_str;
                                         // Q: ? Preserve the frame coordinates as well ?

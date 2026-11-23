@@ -50,6 +50,7 @@ TFlowPWM::TFlowPWM(const TFlowPWMCfg::cfg_tflow_servo_cntrl* _cfg)
     fd_enable = -1;
     
     move_speed = 0.;
+    move_dir = MOVE_DIR::STOP;       // Don't care as long as move_speed = 0
 
     clock_gettime(CLOCK_MONOTONIC, &last_pwm_update_ts);
 
@@ -95,7 +96,7 @@ TFlowPWM::TFlowPWM(const TFlowPWMCfg::cfg_tflow_servo_cntrl* _cfg)
         std::string("/duty_cycle");
     fd_duty_cycle = open(fname_pwm_dutycycle.c_str(), O_WRONLY);
 
-    duty_cycle = degr2dutecycle(0); // Always start from pos 0? 
+    duty_cycle = rel2dutecycle(0); // Always start from pos 0? 
     val_str_len = snprintf(val_str, sizeof(val_str), "%d", duty_cycle);
     wrttn = write(fd_duty_cycle, val_str, val_str_len);
 
@@ -120,6 +121,14 @@ void TFlowPWM::onConfig()
         move_dir = MOVE_DIR::STOP;
     }
 #endif
+}
+
+int TFlowPWM::rel2dutecycle(float rel)
+{
+    int pwm_min = cfg_dtc_min();
+    int pwm_max = cfg_dtc_max();
+
+    return lround((pwm_max - pwm_min) * rel) + pwm_min;
 }
 
 int TFlowPWM::degr2dutecycle(float degr)
@@ -148,6 +157,14 @@ float TFlowPWM::get_dutecycle_rad() const
     float degr = 90 - (duty_cycle - pwm_min) / (float)cfg->degr2dtc.v.dbl;
 
     return DEG2RAD(degr);
+}
+
+float TFlowPWM::get_dutecycle_rel() const 
+{
+    int pwm_min = cfg_dtc_min();
+    int pwm_max = cfg_dtc_max();
+
+    return (float)(duty_cycle - pwm_min) / (pwm_max - pwm_min);
 }
 
 float TFlowPWM::dutecycle2degr(int dtc)
@@ -210,7 +227,8 @@ void TFlowPWM::move_update()                                             // Upda
 
     // Apply forced configuration if present
     if (cfg->force_dtc_en.v.num) {
-        duty_cycle_new = degr2dutecycle(cfg->force_dtc_degr.v.num - 20);
+        duty_cycle_new = rel2dutecycle((float)cfg->force_dtc_rel.v.num / 100);
+        // duty_cycle_new = degr2dutecycle(cfg->force_dtc_degr.v.num - 20);
     }
     else if (cfg->force_up.v.num > 0 && cfg->force_down.v.num > 0) {
         // Both direction force == STOP

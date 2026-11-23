@@ -25,6 +25,19 @@
 #include "../tflow-process.hpp"  // for TFlowBufPck
 #include "../tflow-ctrl-process.hpp"
 
+#include "../udp/tflow-udp.hpp"
+
+extern TFlowUDPCfg tflow_udp_gc_cfg;
+
+   
+TFlowUDPCfg tflow_udp_gc_cfg({
+    TFLOW_CMD_HEAD("TFlowUDPTrinityGC"),
+    .en             = { "en",               TFlowCtrl::CFT_NUM, 0, {.num   =       1}, &ui_switch_def},
+    .udp_peer_addr  = { "udp_peer_addr",    TFlowCtrl::CFT_STR, 0, {.c_str = nullptr}, &tflow_udp_gc_cfg.ui_edit_udp_remote_addr},
+    .udp_local_addr = { "udp_local_addr",   TFlowCtrl::CFT_STR, 0, {.c_str = nullptr}, &tflow_udp_gc_cfg.ui_edit_udp_local_addr},
+    TFLOW_CMD_EOMSG
+});
+
 #include "tflow-trck-cfg.hpp"
 #include "tflow-trck.hpp"
 
@@ -85,9 +98,13 @@ TFlowTracker::TFlowTracker(cv::Size _frame_size,
     servo_pitch((const TFlowPWMCfg::cfg_tflow_servo_cntrl*)_cfg->servo_pitch.v.ref),
     dashboard(this, (const TFlowTrackerCfg::cfg_trck_dashboard*)_cfg->dashboard.v.ref, frame_size),
     tgt(frame_size),
-    vcond((const TFlowVCondCfg::cfg_vcond*)_cfg->vcond.v.ref, frame_size, Point2i(184, 44))
+    vcond((const TFlowVCondCfg::cfg_vcond*)_cfg->vcond.v.ref, frame_size, Point2i(184, 44)),
+    udp_gc((const TFlowUDPCfg::cfg_udp*)_cfg->udp_gc.v.ref,
+        std::bind(&TFlowTracker::udp_gc_onRX, this, std::placeholders::_1, std::placeholders::_2))
 {
     cfg = _cfg;
+
+    trinity_data.sign = 0x54524E31;
 
     CleanUp();
 
@@ -635,15 +652,26 @@ cv::Rect2f TFlowTracker::getGridSector()
 
 void TFlowTracker::onPointer(int event, int x, int y, int flags)
 {
-    dashboard.onPointer(event, x, y, flags);
+    // dashboard.onPointer(event, x, y, flags);
+}
+
+TFlowImu::TFlowImu() {
+    ts = 0;
+    memset(&ap_imu_milesi_v0, 0, sizeof(ap_imu_milesi_v0));
+    memset(&ap_imu_milesi, 0, sizeof(ap_imu_milesi));
+    is_valid = 0;
 }
 
 int TFlowImu::getData(const uint8_t* aux_data, uint32_t aux_data_len)
 {
     uint32_t sign = *(uint32_t*)aux_data;
     switch (sign) {
+        case 0x4d4c5332:    // MLS2
+            memcpy(&ap_imu_milesi, aux_data, sizeof(TFlowImu::imu_milesi_v2));
+            is_valid = 1;
+            return sizeof(TFlowImu::imu_milesi_v2);
         case 0x494D5531:    // IMU1
-            memcpy(&ap_imu, aux_data, sizeof(TFlowImu::imu_milesi_v0));
+            memcpy(&ap_imu_milesi_v0, aux_data, sizeof(TFlowImu::imu_milesi_v0));
             is_valid = 1;
             return sizeof(TFlowImu::imu_milesi_v0);
         default:
@@ -669,6 +697,7 @@ void TFlowTracker::getAuxData(const uint8_t* aux_data, uint32_t aux_data_len)
             bytes_consumed = tgt.getData(aux_data, aux_data_len);
             break;
 
+        case 0x4d4c5332:    // MLS2
         case 0x494D5531:    // IMU1
             bytes_consumed  = imu.getData(aux_data, aux_data_len);
             break;
@@ -685,94 +714,75 @@ void TFlowTracker::getAuxData(const uint8_t* aux_data, uint32_t aux_data_len)
 
 }
 
-void TFlowTracker::onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data, uint32_t aux_data_len)
+void TFlowTracker::onIdle(const struct timespec& now_ts)
 {
-    static clock_t tracker_frame_profile[7];
+    udp_gc.onIdle(now_ts);
+}
 
-    tracker_frame_profile[0] = clock();
+void TFlowTracker::updateGCdata()
+{
+    trinity_data.lon        = imu.ap_imu_milesi.gps_lon;
+    trinity_data.lat        = imu.ap_imu_milesi.gps_lat;
+    trinity_data.alt        = imu.ap_imu_milesi.altitude_local;
+    trinity_data.air_speed  = imu.ap_imu_milesi.airspeed;       // m/s
+    trinity_data.roll       = imu.ap_imu_milesi.roll;           // rad
+    trinity_data.pitch      = imu.ap_imu_milesi.pitch;          // rad
+    trinity_data.yaw        = imu.ap_imu_milesi.yaw;            // rad
+    trinity_data.servo1     = servo_pitch.get_dutecycle_rel();
 
+    udp_gc.Send((uint8_t*)&trinity_data, sizeof(struct TrinityData));
+}
+
+void TFlowTracker::onFrame(const cv::Mat& frame_in_ro, const uint8_t* aux_data,
+    uint32_t aux_data_len, uint32_t seq)
+{
     // In case of Player Scenario it is possible that the algorithm has 
     // to update the dashboard only. In that case sp_pck_in will be NULL
-    if (!frame_in_ro.empty() || dashboard.preview_force_frame) {
 
-        perf_mon.tickStart();
+    int frame_changed = (seq != frame_seq_prev);
+    frame_seq_prev = seq;
 
-        if (!frame_in_ro.empty()) {
+    perf_mon.tickStart();
+    
+    dashboard.render_prims.clear();
 
-            getAuxData(aux_data, aux_data_len);
+    vcond.onFrame(frame_in_ro, in_frame_local);
 
-            // userctrl_jstk - receive data for manual targeting assistance 
-            // Algo mix this input with Algo output and sends to Capture for
-            // further forwarding to AP
+    if (frame_changed || dashboard.preview_force_frame) {
 
-            vcond.onFrame(frame_in_ro, in_frame_local);
+        dashboard.preview_force_frame = 0;
 
-            onFrameAlgo(in_frame_local);
+        getAuxData(aux_data, aux_data_len);
 
-            tgt.mixUserCtrl(userctrl.userctrl_jstk, userctrl.is_valid);
-
-        } else if (dashboard.preview_force_frame) {
-            // Frame is not changed but we have some inputs from a user.
-            // Let's reuse previous frame for processing.
-            if (pyr_curr && !(*pyr_curr)[0].empty()) {
-                onFrameAlgo((*pyr_curr)[0]);
-            }
+        // userctrl_jstk - receive data for manual targeting assistance 
+        // Algo mix this input with Algo output and sends to Capture for
+        // further forwarding to AP
+        if (imu.is_valid) {
+            updateGCdata();
         }
 
-        tracker_frame_profile[1] = clock();
+        onFrameAlgo(in_frame_local);
 
-        // Copy input frame into a dedicated Dashboard's NV12 Mat
-        // Normally frameCam is sub Mat of Dashboard's mainFrame.
-        // As CamY and CamUV always create in pair, check Y Mat only.
-        if (pyr_curr && (*pyr_curr).size() > 0 ) {
+        tgt.mixUserCtrl(userctrl.userctrl_jstk, userctrl.is_valid);
 
-            dashboard.addCamFrame((*pyr_curr)[0]);
-        }
-
-        tracker_frame_profile[2] = clock();
-
-        // Render in frame debug info
         force_redraw = 1;
-        
-        perf_mon.tickStop();
     }
-
+    
+    dashboard.addCamFrame(in_frame_local); 
+    
     if (force_redraw) {
         // Redraw on each frame and/or configuration update
         force_redraw = 0;
-        RenderDebugInfo();
-
-        tracker_frame_profile[3] = clock();
-
+        RenderDebugInfo(dashboard.render_prims);
     }
-
-    if (frame_in_ro.empty() && dashboard.instr_refresh == 0) {
-        // No input packets and dashboard not changed
-        return;
-    }
-
-    // Debug & dashboard rendering
-    // dashboardUpdate();
-    
-    tracker_frame_profile[4] = clock();
-
-    dashboard.render_prims.clear();
 
     perf_mon.render(dashboard.render_prims);
     vcond.render(dashboard.render_prims);
-    dashboard.instrRender();    // TODO: Q? Should it be part of IMU?
+    dashboard.instrRender(dashboard.render_prims);
 
     dashboard.render();
-
-    //g_info("tracker profile: Total: %-5d, Algo %-5d, CamAdd %-5d, RenderDbg %-5d, DashUpdate %-5d, RenderMon %-5d, Render Dash%-5d",
-    //        tracker_frame_profile[6] - tracker_frame_profile[0],
-    //        tracker_frame_profile[1] - tracker_frame_profile[0],
-    //        tracker_frame_profile[2] - tracker_frame_profile[1],
-    //        tracker_frame_profile[3] - tracker_frame_profile[2],
-    //        tracker_frame_profile[4] - tracker_frame_profile[3],
-    //        tracker_frame_profile[5] - tracker_frame_profile[4],
-    //        tracker_frame_profile[6] - tracker_frame_profile[5]);
-
+  
+    perf_mon.tickStop();
 }
 
 void TFlowTracker::targetSelection()
@@ -916,12 +926,14 @@ void TFlowTracker::targetOnButtEvent(uint16_t event)
 void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
 {
 
+#if 0
     if (features.size() == 0) {
         // ?? Move to center??
         // STOP and Release speeed control.
         // Speed == 0 means use speed from configuration
         servo_pitch.move_set(TFlowPWM::MOVE_DIR::STOP, 0.);
     }
+
     // Move selected feature to center
     for (auto& pair : features) {
         auto& feat_to_center = pair.second;
@@ -948,6 +960,7 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
         }
         break;
     }
+#endif
 
     if (userctrl.is_valid) {
         if (abs(userctrl.userctrl_jstk.r) > 100) {
@@ -1062,8 +1075,12 @@ void TFlowTracker::onFrameAlgo(cv::Mat& frame_curr)
    
 }
 
-void TFlowTracker::onRewind()
+void TFlowTracker::onRewind(TFlowAlgo::tflow_cfg_algo *rw_cfg)
 {
+    TFlowTrackerCfg::cfg_tracker* rw_trck_cfg = 
+        (TFlowTrackerCfg::cfg_tracker*)rw_cfg->tflow_algo.v.ref;
+
+
     CleanUp();
 }
 
@@ -1094,6 +1111,11 @@ int TFlowTracker::onConfig(json11::Json::object& j_out_params,
         vcond.onConfigValidate(j_out_params, rw_vcond_cfg);
         vcond.onConfig(j_out_params);
     }
+
+    if (cfg->udp_gc.flags & TFlowCtrl::FIELD_FLAG::CHANGED) {
+        udp_gc.onConfig();
+    }
+
 
     //const Json j_grid = j_in_params["grid"];
     //if (j_grid.is_string()) {
@@ -1129,7 +1151,7 @@ void TFlowTracker::fillTrackerMsg()
 //    dashboard.instrUpdate(imu);
 //}
 
-void TFlowTracker::renderPitchHold(vector<draw::Prim>& prims)
+void TFlowTracker::renderPitchHold(const cv::Rect &cam_off, vector<draw::Prim>& prims)
 {
     int y_down_1 = cfg->pitch_hold_fast.v.vnum->at(0);
     int y_up_1   = cfg->pitch_hold_fast.v.vnum->at(1);
@@ -1137,59 +1159,49 @@ void TFlowTracker::renderPitchHold(vector<draw::Prim>& prims)
     int y_up_2   = cfg->pitch_hold_slow.v.vnum->at(1);
 
     prims.emplace_back(draw::Line{
-        {0, y_down_1}, {frame_size.width, y_down_1}, cyan});
-    prims.emplace_back(draw::Line{
-        {0, y_up_1},   {frame_size.width, y_up_1}, cyan});
+        point2f_offset(cam_off, {0, y_down_1}),
+        point2f_offset(cam_off, {frame_size.width, y_down_1}), cyan});
 
     prims.emplace_back(draw::Line{
-        {0, y_down_2}, {frame_size.width, y_down_2}, yellow});
-    prims.emplace_back(draw::Line{
-        {0, y_up_2}, {frame_size.width, y_up_2}, yellow});
+        point2f_offset(cam_off, {0, y_up_1}),
+        point2f_offset(cam_off, {frame_size.width, y_up_1}), cyan});
 
+    prims.emplace_back(draw::Line{
+        point2f_offset(cam_off, {0, y_down_2}),
+        point2f_offset(cam_off, {frame_size.width, y_down_2}), yellow});
+
+    prims.emplace_back(draw::Line{
+        point2f_offset(cam_off, {0, y_up_2}),
+        point2f_offset(cam_off, {frame_size.width, y_up_2}), yellow});
 }
 
-void TFlowTracker::renderPreviewCursor(vector<draw::Prim>& prims)
+void TFlowTracker::renderPreviewCursor(const cv::Rect &cam_off, vector<draw::Prim>& prims)
 {
 #if BTC
     int preview_mode = dashboard.preview_mode;
     Point2i preview_cursor = dashboard.preview_cursor;
 #endif
 
-
     int preview_mode = tgt.last_targeting_en;
-    Point2i preview_cursor = Point2i(tgt.cursor_x, tgt.cursor_y);
+    Point2i preview_cursor = Point2i((int)cam_off.x + tgt.cursor_x, (int)cam_off.y + tgt.cursor_y);
 
-    if (preview_mode == 0) return;
+    if (preview_mode) {
 
-    const int cross_size = 5;
-    prims.emplace_back(draw::Line{
-        {preview_cursor.x - cross_size, preview_cursor.y },
-        {preview_cursor.x + cross_size, preview_cursor.y },
-        blue});
-
-    prims.emplace_back(draw::Line{
-        {preview_cursor.x, preview_cursor.y - cross_size},
-        {preview_cursor.x, preview_cursor.y + cross_size},
-        blue});
-
-#if BTC
-    if (preview_mode == 2) {
-        // Active feature selection
-        Point2i offset = Point2i(1,1);
+        const int cross_size = 5;
         prims.emplace_back(draw::Line{
-            Point2i(preview_cursor.x - cross_size, preview_cursor.y ) + offset,
-            Point2i(preview_cursor.x + cross_size, preview_cursor.y ) + offset,
-            cyan});
+            {preview_cursor.x - cross_size, preview_cursor.y },
+            {preview_cursor.x + cross_size, preview_cursor.y },
+            blue });
 
         prims.emplace_back(draw::Line{
             {preview_cursor.x, preview_cursor.y - cross_size},
             {preview_cursor.x, preview_cursor.y + cross_size},
-            cyan});
+            blue });
     }
-#endif 
+
 }
 
-void TFlowTracker::renderGrid(vector<draw::Prim>& prims)
+void TFlowTracker::renderGrid(const cv::Rect &cam_off, vector<draw::Prim>& prims)
 {
     // TODO: Rework to lines instead of rectangles
     //       ...
@@ -1222,9 +1234,9 @@ void TFlowTracker::renderGrid(vector<draw::Prim>& prims)
 
 }
 
-void TFlowTracker::RenderDebugInfo()
+void TFlowTracker::RenderDebugInfo(std::vector<draw::Prim> &prims)
 {
-    std::vector<draw::Prim> prims;
+    const cv::Rect2f cam_off = dashboard.frameCamRect;
 
     TFlowFeature::RenderDbg feat_cfg = (TFlowFeature::RenderDbg) 
         ((int)TFlowFeature::RenderDbg::NEW          |
@@ -1235,30 +1247,69 @@ void TFlowTracker::RenderDebugInfo()
         0);
 
     if (tgt.last_targeting_en) {
+       
         prims.emplace_back(
-            draw::Rect{ gftt_preview.fov_rect, red});
+            draw::Rect{ rect2f_offset(cam_off, gftt_preview.fov_rect), red});
 
         prims.emplace_back(
-            draw::Rect{ gftt_preview._fov_rect_framed, blue});
+            draw::Rect{ rect2f_offset(cam_off, gftt_preview._fov_rect_framed), blue});
 
-        for (auto& p_feat : features_preview) p_feat.second.RenderFeature(prims, feat_cfg);
+        for (auto& p_feat : features_preview) p_feat.second.RenderFeature(cam_off, prims, feat_cfg);
     }
     else {
-        for (auto& p_feat : features) p_feat.second.RenderFeature(prims, feat_cfg);
+        for (auto& p_feat : features) {
+            if (gc_data.servo1 == 1.0f) {
+                p_feat.second.RenderFeature2(cam_off, prims, feat_cfg);
+            }
+            else {
+                p_feat.second.RenderFeature(cam_off, prims, feat_cfg);
+            }
+        }
+
     }
 
-    gftt_preview.RenderGFTTPreview(prims);
+    gftt_preview.RenderGFTTPreview(cam_off, prims);
 
-    renderPitchHold(prims);
+    // renderPitchHold(cam_off, prims);
 
-    renderPreviewCursor(prims);
+    renderPreviewCursor(cam_off, prims);
 
     // renderGrid(prims);
+}
 
-    if (!dashboard.frameCamY.empty()) {
-        draw::render(dashboard.frameCamY, dashboard.frameCamUV, prims);
+void TFlowTracker::udp_gc_onRX(const uint8_t* data, size_t len)
+{
+    if (len == 0) {
+        return;
     }
 
+    do {
+        uint32_t sign = *(uint32_t*)data;
+        uint32_t bytes_consumed = 0;
+        switch (sign) {
+        case 0x41475431:    //TRN1
+        {
+            size_t gc_data_len = sizeof(TFlowTracker::GCData);
+            assert(len >= gc_data_len);
+            memcpy(&gc_data, data, gc_data_len);
+            bytes_consumed = (uint32_t)gc_data_len;
+
+            if (isfinite(gc_data.servo1)) {
+                servo_pitch.move_set((gc_data.servo1 == 0.f) ?
+                    TFlowPWM::MOVE_DIR::UP : TFlowPWM::MOVE_DIR::DOWN, 0);    // 0 -> Speed from config
+                dashboard.instr_refresh = 1;
+            }
+            g_info("GC data received: servo1: %f", gc_data.servo1);
+            break;
+        }
+        default:
+            assert(0);
+        }
+        len -= bytes_consumed;
+        data += bytes_consumed;
+    } while(len);
+
+    udp_gc.Send((uint8_t*)&trinity_data, sizeof(struct TrinityData));
 }
 
 int TFlowTargeting::getMode()
@@ -1389,3 +1440,4 @@ int TFlowUserctrl::getData(const uint8_t* aux_data, uint32_t aux_data_len)
 
     return 0;
 }
+

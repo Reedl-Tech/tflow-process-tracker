@@ -1,13 +1,21 @@
 #include "tflow-build-cfg.hpp"
 
-#include <features.h>
+#if _WIN32
+#include "tflow-win.hpp"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
 #include <errno.h>
+
+#if _WIN32
+#else
 #include <termios.h>
 #include <unistd.h>
+#endif
+
 #include <fcntl.h>
 #include <math.h>
 
@@ -16,25 +24,31 @@
 #include <functional>
 #include <regex>
 
+#if _WIN32
+#else
+
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <sys/stat.h> /* For mode constants */
 #include <sys/types.h>
-
 #include <dirent.h>
-#include <glibmm.h>
-#include <glib-unix.h>
+#endif
+
+#include "tflow-glib.hpp"
 
 #include <json11.hpp>
-
-using namespace json11;
-using namespace std;
 
 #define IDLE_INTERVAL_MSEC 100
 
 #include "tflow-process.hpp"
+#include "tflow-perfmon.hpp"     // is used for WIN32 version for clock_gettime
 #include "tflow-player.hpp"
+
+using namespace json11;
+using namespace std;
+
+TFlowPlayerCfg tflow_player_cfg;
 
 int MJPEGCapture::rewind(int frame_num)
 {
@@ -79,29 +93,23 @@ int MJPEGCapture::decompressNext(int buff_idx, int *error)
             assert(sizeof(aux_data_in) > frame_info.v2.aux_data_len );
             res = fread(&aux_data_in, 1, frame_info.v2.aux_data_len, f);
         }
-#if 0
-        if (*(uint32_t*)&in_imu_v2.sign == 0x32554D49) {              // IMU2 => IMU_v2
-            if (frame_info.v2.aux_data_len != sizeof(in_imu_v2)) {
-                g_warning("Bad IMUv2 len %d, %ld expected\r\n", 
-                    frame_info.v2.aux_data_len, sizeof(in_imu_v2));
-                return -1;
-            }
-        }
-        else if (*(uint32_t*)&in_imu_v3.sign == 0x33554D49) {              // IMU3 => IMU_v3
-            if (frame_info.v2.aux_data_len != sizeof(in_imu_v3)) {
-                g_warning("Bad IMUv3 len %d, %ld expected\r\n", 
-                    frame_info.v2.aux_data_len, sizeof(in_imu_v3));
-                return -1;
-            }
-        }
-        else {
-            g_warning("Bad IMU data sign 0x%08X, IMU2 expected\r\n", in_imu_v2.sign);
-            return -1;
-        }
-#endif
 
         // Read the MJPEG frame
         jpeg_sz = frame_info.v2.jpeg_sz;
+        res = fread(in_buff, 1, jpeg_sz, f);
+    }
+    else if (*(uint32_t*)&frame_info.sign == 0x332E5452) {      // RT.2 IMU data goes after the header
+        // Read remaining version specific frame's header
+        res = fread(&frame_info.sign + 1, sizeof(frame_info.v3) - sizeof(frame_info.sign), 1, f);
+
+        aux_data_len = frame_info.v3.aux_data_len;
+        if (frame_info.v3.aux_data_len > 0) {
+            assert(sizeof(aux_data_in) > frame_info.v3.aux_data_len );
+            res = fread(&aux_data_in, 1, frame_info.v3.aux_data_len, f);
+        }
+
+        // Read the MJPEG frame
+        jpeg_sz = frame_info.v3.jpeg_sz;
         res = fread(in_buff, 1, jpeg_sz, f);
     }
     else {
@@ -137,7 +145,13 @@ int MJPEGCapture::decompressNext(int buff_idx, int *error)
 
     // Sanity check - JPEG parameters (color space & resolution) must 
     // corresponds to the allocated output buff size.
-    assert((frame_info.v2.height * frame_info.v2.width * 1) == cinfo.image_height * cinfo.image_width * cinfo.num_components);
+    if (*(uint32_t*)&frame_info.sign == 0x322E5452) {      // RT.2 IMU data goes after the header
+        // Read remaining version specific frame's header
+        assert((frame_info.v2.height * frame_info.v2.width * 1) == cinfo.image_height * cinfo.image_width * cinfo.num_components);
+    }
+    else if (*(uint32_t*)&frame_info.sign == 0x332E5452) {
+        assert((frame_info.v3.height * frame_info.v3.width * 1) == cinfo.image_height * cinfo.image_width * cinfo.num_components);
+    }
 
     JSAMPARRAY buff_row_pointers = &row_pointers[buff_idx * height];
 
@@ -169,7 +183,7 @@ void MJPEGCapture::setupRowPointers(int buff_idx, uint8_t *buf)
     JSAMPARRAY buff_row_pointers = &row_pointers[buff_idx * height];
 
     JSAMPROW  row_ptr = (JSAMPROW)buf;
-    for (int row = 0; row < height; row++) {
+    for (uint32_t row = 0; row < height; row++) {
         buff_row_pointers[row] = row_ptr;
         row_ptr += width;
     }
@@ -219,8 +233,6 @@ void MJPEGCapture::clean()
 
 int MJPEGCapture::setup(int buffs_num)
 {
-    JSAMPROW    row_ptr;
-
     assert(height != -1);
 
     row_pointers = (JSAMPARRAY)g_malloc(sizeof(JSAMPROW) * height * buffs_num);
@@ -287,6 +299,9 @@ int MJPEGCapture::open(const std::string& fname, int _offset_frame)
         if (*(uint32_t*)&frame.sign == 0x322E5452) {        // RT.2
             rd_res = fread(&frame.sign + 1, sizeof(frame.v2) - sizeof(frame.sign), 1, f);
         }
+        else if (*(uint32_t*)&frame.sign == 0x332E5452) {  // RT.3
+            rd_res = fread(&frame.sign + 1, sizeof(frame.v3) - sizeof(frame.sign), 1, f);
+        }
         else {
             g_warning("File %s corrupted (bad sign)\r\n", fname.c_str());
             assert(0);
@@ -309,6 +324,10 @@ int MJPEGCapture::open(const std::string& fname, int _offset_frame)
         if (*(uint32_t*)&frame.sign == 0x322E5452) {        // RT.2 IMU data goes after the header
             seek_res = fseek(f, frame.v2.jpeg_sz + frame.v2.aux_data_len, SEEK_CUR);
             in_buff_size_max = std::max(frame.v2.jpeg_sz, in_buff_size_max);
+        }
+        else if (*(uint32_t*)&frame.sign == 0x332E5452) {        // RT.3 Added src_id and timestamp
+            seek_res = fseek(f, frame.v3.jpeg_sz + frame.v3.aux_data_len, SEEK_CUR);
+            in_buff_size_max = std::max(frame.v3.jpeg_sz, in_buff_size_max);
         }
         else {
             assert(0);
@@ -333,24 +352,53 @@ int MJPEGCapture::open(const std::string& fname, int _offset_frame)
         if (frames_count >= (uint32_t)offset_frame) {
             frame_offset_map.push_back(frame_pos);
         }
-        in_buff_size_max = std::max(frame.v2.jpeg_sz, in_buff_size_max);
 
-        if (_width == -1) {
-            // Preserve frame WxH from the very first frame
-            _width = frame.v2.width;
-            _height = frame.v2.height;
-            _format = frame.v2.format;
-        }
-        else {
-            // Frame WxH must not change during the runtime
-            if ((_width != frame.v2.width) ||
-                (_height != frame.v2.height) ||
-                (_format != frame.v2.format)) {
 
-                g_warning("Error - frame params changed\r\n");
-                return -1;
+        if (*(uint32_t*)&frame.sign == 0x322E5452) {
+            in_buff_size_max = std::max(frame.v3.jpeg_sz, in_buff_size_max);
+
+            if (_width == -1) {
+                // Preserve frame WxH from the very first frame
+                _width = frame.v3.width;
+                _height = frame.v3.height;
+                _format = frame.v3.format;
+            }
+            else {
+                // Frame WxH must not change during the runtime
+                if ((_width != frame.v3.width) ||
+                    (_height != frame.v3.height) ||
+                    (_format != frame.v3.format)) {
+
+                    g_warning("Error - frame params changed\r\n");
+                    return -1;
+                }
             }
         }
+        else if (*(uint32_t*)&frame.sign == 0x332E5452) {
+            in_buff_size_max = std::max(frame.v3.jpeg_sz, in_buff_size_max);
+
+            if (_width == -1) {
+                // Preserve frame WxH from the very first frame
+                _width = frame.v3.width;
+                _height = frame.v3.height;
+                _format = frame.v3.format;
+            }
+            else {
+                // Frame WxH must not change during the runtime
+                if ((_width != frame.v3.width) ||
+                    (_height != frame.v3.height) ||
+                    (_format != frame.v3.format)) {
+
+                    g_warning("Error - frame params changed\r\n");
+                    return -1;
+                }
+            }
+
+        }
+        else {
+            assert(0);
+        }
+
 
         frames_count++;
     }
@@ -367,8 +415,8 @@ int MJPEGCapture::open(const std::string& fname, int _offset_frame)
     return 0;
 }
 
-TFlowPlayer::TFlowPlayer(TFlowProcess* _app, MainContextPtr _context, 
-    const TFlowCtrlProcess::cfg_player* _cfg,
+TFlowPlayer::TFlowPlayer(MainContextPtr _context, 
+    const TFlowPlayerCfg::cfg_player* _cfg,
     int _buffs_num,
     std::function<void(std::shared_ptr<TFlowBufPck> sp_pck)> _app_onFrame,
     std::function<void()> _app_onSrcReady,
@@ -379,7 +427,6 @@ TFlowPlayer::TFlowPlayer(TFlowProcess* _app, MainContextPtr _context,
 {
     context = _context;
     buffs_num = _buffs_num;
-    app = _app;
     cfg = _cfg;
 
     player_state_flag.v = Flag::UNDEF;
@@ -397,6 +444,13 @@ TFlowPlayer::TFlowPlayer(TFlowProcess* _app, MainContextPtr _context,
     curr_state_ticks = 0;
 
     setCurrentState(off_str);
+
+#if _WIN32
+    h_fps_tick = INVALID_HANDLE_VALUE;
+#else
+
+#endif
+
 }
 
 int TFlowPlayer::sendRedeem(int buff_idx)
@@ -423,10 +477,133 @@ void TFlowPlayer::onAction(ACTION action)
     }
 }
 
+#if _WIN32
 int TFlowPlayer::onDir(const json11::Json& j_in_params, json11::Json::object& j_out_params)
 {
-#if !(OFFLINE_PROCESS)
+    // TODO: Reconsider trailing slash usage.
+    //       Define one format for both Windows and Linux version
+    WIN32_FIND_DATA ffd;
 
+    std::vector<Json::object> dir_entries;
+
+    const Json j_params = j_in_params;
+    std::string s_msg = j_params.dump();
+
+    const json11::Json j_in_params_fake = json11::Json::object{ { "path", "RecordedVideoLib"} };
+    const Json j_path = j_in_params_fake["path"];
+
+    if (!j_path.is_string()) {
+        // No directory? Consider the root or return an error?
+        j_out_params.emplace("error", "Path not specified");
+        return -1;
+    }
+    j_out_params.emplace("path", j_path.string_value() + "\\");
+
+    const Json j_mask = j_in_params["mask"];
+    string file_mask;
+
+    if (!j_mask.is_string()) {
+        // Mask is optional
+    }
+    else {
+        file_mask = j_mask.string_value().c_str();
+        j_out_params.emplace("mask", j_mask.string_value());
+    }
+    
+    //const char *del_me = j_path.string_value().c_str();
+
+    std::string path_to_find =  j_path.string_value() + "\\*";
+    HANDLE hFind = FindFirstFile(path_to_find.c_str(), &ffd);
+    if (INVALID_HANDLE_VALUE == hFind) {
+        j_out_params.emplace("error", "Can't open path");
+        return -1;
+    }
+
+    std::regex thumbnail_regex(".*thmb$",
+        std::regex_constants::grep  | 
+        std::regex_constants::icase |
+        std::regex_constants::nosubs);
+
+    std::regex file_mask_regex(file_mask, 
+        std::regex_constants::grep  | 
+        std::regex_constants::icase |
+        std::regex_constants::nosubs);
+
+    while (FindNextFile(hFind, &ffd)) {
+            
+        struct stat st;
+        //const std::string full_entry_path = j_path.string_value() + std::string(dirp->d_name);
+        const std::string full_entry_path = j_path.string_value() + "\\" + std::string(ffd.cFileName);
+        Json::object j_entry;
+        std::cmatch thumb_match;
+
+        // Ignore system files and directories
+        if (ffd.cFileName[0] == '.') continue;
+
+        // Ignore thumbnails
+        if (std::regex_match(ffd.cFileName, thumb_match, thumbnail_regex)) continue;
+
+        if (0 == (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            std::cmatch file_mask_match;
+                
+            if (!file_mask.empty() && 
+                !std::regex_match(ffd.cFileName, file_mask_match, file_mask_regex)) {
+                continue;
+            }
+ 
+            j_entry.emplace("name", ffd.cFileName);
+
+            if (stat(full_entry_path.c_str(), &st)) {
+                j_entry.emplace("type", "err");
+                continue;
+            } 
+
+            // ffd.ftLastWriteTime 
+            // BOOL FileTimeToSystemTime(
+            //         [in]  const FILETIME *lpFileTime,
+            //         [out] LPSYSTEMTIME   lpSystemTime);
+            // 
+            j_entry.emplace("type", "file");
+            j_entry.emplace("date", (int)st.st_mtime);
+            j_entry.emplace("size", (int)st.st_size);
+
+            const std::string full_thmb_path = full_entry_path + std::string(".thmb");
+
+            if (!stat(full_thmb_path.c_str(), &st) && 
+                (st.st_mode & (S_IFREG))) {
+                j_entry.emplace("thmb", full_thmb_path);
+            }
+
+        } 
+        else if (ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+
+            j_entry.emplace("name", ffd.cFileName); // Max len 256
+            j_entry.emplace("type", "dir");
+            const std::string full_dir_thmb_path = full_entry_path + std::string("\\.thmb");
+
+            if (!stat(full_dir_thmb_path.c_str(), &st) && 
+                (st.st_mode & (S_IFREG))) {
+                j_entry.emplace("thmb", full_dir_thmb_path);
+            }
+        }
+        dir_entries.push_back(j_entry);
+    }
+    FindClose(hFind);
+        
+    //if (errno) {
+    //    j_out_params.emplace("error", "Can't read dir entry");
+    //}
+
+    if (dir_entries.size()) {
+        j_out_params.emplace("items", dir_entries);
+    }
+
+    std::string s_msg_delme = ((json11::Json)j_out_params).dump();
+    return 0;
+}
+#else 
+int TFlowPlayer::onDir(const json11::Json& j_in_params, json11::Json::object& j_out_params)
+{
     DIR* dp;
     struct dirent* dirp;
     std::vector<Json::object> dir_entries;
@@ -534,9 +711,10 @@ int TFlowPlayer::onDir(const json11::Json& j_in_params, json11::Json::object& j_
         j_out_params.emplace("items", dir_entries);
     }
 
-#endif
     return 0;
 }
+
+#endif
 
 bool TFlowPlayer::onTickNextFrame()
 {
@@ -607,14 +785,45 @@ bool TFlowPlayer::onTickNextFrame()
     clock_gettime(CLOCK_MONOTONIC, &tp);        // TODO: Q: ? Use ts from the packet ?
                                                 //       Is used by frameRateLimit() only.
                                                 //       Do we want limit recorded frame rate or actual one?
-
+#if _WIN32
+    // Att: WIN has another timespec format.
+    sp_pck->d.consume.tv_sec = (uint32_t)tp.tv_sec;
+    sp_pck->d.consume.tv_usec = (uint32_t)tp.tv_nsec / 1000;
+#else
     sp_pck->d.consume.ts.tv_sec = tp.tv_sec;
     sp_pck->d.consume.ts.tv_usec = tp.tv_nsec / 1000;
+#endif
 
     return G_SOURCE_CONTINUE;
 }
 
-bool TFlowPlayer::onTick()
+int TFlowPlayer::rewind(int new_frame)
+{
+    if (new_frame == mjpegCapture.curr_frame) {
+        return 0;
+    }
+
+    mjpegCapture.rewind(new_frame);
+
+    // If in Pause state set to one get one frame
+    // If in Play stay in play
+    if (curr_state_ticks == 0) curr_state_ticks = 1;
+
+#if _WIN32
+    onTickWin();
+#else
+    onTickGlib();
+#endif
+    return 0;
+}
+
+void TFlowPlayer::onTickWin()
+{
+    // Win callback doesn't return anything
+    bool rc = onTickGlib();
+}
+
+bool TFlowPlayer::onTickGlib()
 {
     // Sanity
     assert(!is_off_state());
@@ -622,7 +831,7 @@ bool TFlowPlayer::onTick()
     if (curr_state_ticks == 0) {
         // Do nothing - means execute onFrame() with the empty sp_pck. This 
         // allows update dashboard while Algo is in pause. For ex. change the
-        // scale, background, etc.
+        // scale, background, map, etc.
         // sp_pck.reset();
     }
     else {
@@ -719,16 +928,26 @@ int TFlowPlayer::Init(const char* media_file_name)
 
 void TFlowPlayer::stopFPSTimer()
 {
+#if _WIN32
+    if (h_fps_tick != INVALID_HANDLE_VALUE) {
+        CloseHandle(h_fps_tick);
+        tflow_win_handle_remove(h_fps_tick);
+        h_fps_tick = INVALID_HANDLE_VALUE;
+    }
+
+#else
     if (fps_tick_src) {
         fps_tick_src->destroy();
         fps_tick_src.reset();
     }
+#endif
+
 }
 
 void TFlowPlayer::startFPSTimer()
 {
-    double speed = cfg->playback_speed.v.dbl;
-    double frame_rate = getFrameRate();
+    float speed = (float)cfg->playback_speed.v.dbl;
+    float frame_rate = getFrameRate();
 
     if (speed == -1) {
         // Procees ASAP
@@ -741,14 +960,30 @@ void TFlowPlayer::startFPSTimer()
         speed = 2;
     }
 
-    assert(!fps_tick_src);
-
     // Proceed in real time pace with coefficient
-    int fps_interval_ms = (int)roundf(1 / frame_rate * 1000.f / speed);
+    int fps_interval_ms = (int)roundf(1.f / frame_rate * 1000.f / speed);
+
         
+#if _WIN32
+    assert(h_fps_tick == INVALID_HANDLE_VALUE);
+
+    LARGE_INTEGER liFPSTime;
+    liFPSTime.QuadPart = -1000000LL;     // 100ms in 100ns
+
+    h_fps_tick = CreateWaitableTimer(NULL, FALSE, NULL);
+
+    tflow_win_handle_add(h_fps_tick, std::bind(&TFlowPlayer::onTickWin, this));
+
+    assert(h_fps_tick != 0);
+    BOOL rc = SetWaitableTimer(h_fps_tick, &liFPSTime, 10, nullptr, nullptr, 0);       // 30ms period
+
+
+#else
+    assert(!fps_tick_src);
     fps_tick_src = Glib::TimeoutSource::create(fps_interval_ms);            // TODO: Create once. Reuse on PLAY/PAUSE
-    fps_tick_src->connect(sigc::mem_fun(*this, &TFlowPlayer::onTick));
+    fps_tick_src->connect(sigc::mem_fun(*this, &TFlowPlayer::onTickGlib));
     fps_tick_src->attach(context);
+#endif
 
 }
 
@@ -797,7 +1032,7 @@ bool TFlowPlayer::onIdle(struct timespec now_ts)
         // Stop Algorithm and deinit everything
         app_onSrcGone();
 #if CODE_BROWSE
-            TFlowProcess::onSrcGone()
+        TFlowProcess::onSrcGone()
 #endif
 
         Deinit();
@@ -805,11 +1040,6 @@ bool TFlowPlayer::onIdle(struct timespec now_ts)
         // In case of file read error keep the Player down.
         // In case of file name changed - restart everything.
         player_state_flag.v = last_error ? Flag::CLR : Flag::RISE;
-
-        if (app->fifo_streamer) {
-            delete app->fifo_streamer;
-            app->fifo_streamer = nullptr;
-        }
 
         return G_SOURCE_CONTINUE;
     }

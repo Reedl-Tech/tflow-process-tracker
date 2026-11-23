@@ -4,6 +4,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
+
 #include <string>
 #include <cstdint>
 #include <vector>
@@ -15,14 +16,7 @@
 #include "tflow-ctrl-process-ui.hpp"
 
 #include "tflow-algo.hpp"
-
-#if UDP_STREAMER
-#include "streamer-udp/tflow-udp-vstreamer-cfg.hpp"
-#endif
-
-#if WS_STREAMER
-#include "streamer-ws/tflow-ws-vstreamer-cfg.hpp"
-#endif
+#include "tflow-player.hpp"
 
 // Structure that link TFlowCtrl with user specific algorithm from TFlowProcess
 extern TFlowAlgo::tflow_cfg_algo cmd_flds_cfg_algo;
@@ -47,22 +41,6 @@ public:
         TFLOW_CMD_EOMSG
     };
 
-    struct cfg_player {
-        tflow_cmd_field_t   head;
-        tflow_cmd_field_t   file_name;
-        tflow_cmd_field_t   playback_speed;
-        tflow_cmd_field_t   curr_frame;
-        tflow_cmd_field_t   frame_offset;
-        tflow_cmd_field_t   eomsg;
-    } cmd_flds_cfg_player = {
-        TFLOW_CMD_HEAD("player"),
-        .file_name      = { "file_name",      CFT_STR, 0, {.str = nullptr} },
-        .playback_speed = { "playback_speed", CFT_DBL, 0, {.dbl = 1.0} },       // TODO: Fix speed = -1.0
-        .curr_frame     = { "curr_frame",     CFT_NUM, 0, {.num = 0} },
-        .frame_offset   = { "frame_offset",   CFT_NUM, 0, {.num = 0} },
-         TFLOW_CMD_EOMSG
-    };
-
     struct player_dir {
         tflow_cmd_field_t   dir_name;
         tflow_cmd_field_t   mask;
@@ -77,28 +55,13 @@ public:
         tflow_cmd_field_t   state;
         tflow_cmd_field_t   opencl;
         tflow_cmd_field_t   video_src;
-#if UDP_STREAMER
-        tflow_cmd_field_t   udp_streamer;
-#endif
-
-#if WS_STREAMER
-        tflow_cmd_field_t   ws_streamer;
-#endif
-//        tflow_cmd_field_t   player;
         tflow_cmd_field_t   algo;
         tflow_cmd_field_t   eomsg;
     } cmd_flds_config = {
-        .state        = { "state",        CFT_NUM,      0, {.num =       0},  &ui_switch_def},
-        .opencl       = { "opencl",       CFT_NUM,      0, {.num =       2} },  // 0 - disabled, 1 - enabled, 2 - enable with info. AV: Excluded from UI as no reason so far to disable OpenCL
-        .video_src    = { "video_src",    CFT_STR,      0, {.str = nullptr},  &ui_custom_video_src},   // <"live", "playback", "disabled" >
-
-#if UDP_STREAMER
-        .udp_streamer = { "udp_streamer", CFT_REF,      0, {.ref = &tflow_udp_streamer_cfg.cmd_flds_cfg_udp_streamer.head} /* , &ui_group_def */},   
-#endif
-#if WS_STREAMER
-        .ws_streamer  = { "ws_streamer",  CFT_REF,      0, {.ref = &tflow_ws_streamer_cfg.cmd_flds_cfg_ws_streamer.head}, &ui_group_def},   
-#endif
-        .algo         = { "algo",         CFT_REF_SKIP, 0, {.ref = &cmd_flds_cfg_algo.head },  &ui_group_def },
+        .state        = { "state",        CFT_NUM, 0, {.num =       0} },
+        .opencl       = { "opencl",       CFT_NUM, 0, {.num =       2} },  // 0 - disabled, 1 - enabled, 2 - enable with info. AV: Excluded from UI as no reason so far to disable OpenCL
+        .video_src    = { "video_src",    CFT_STR, 0, {.str = nullptr} , &ui_custom_video_src},   // <"live", "playback", "disabled" >
+        .algo         = { "algo",         CFT_REF_SKIP, 0, {.ref = &cmd_flds_cfg_algo.head }, &ui_group_def },
         TFLOW_CMD_EOMSG
     };
 
@@ -129,7 +92,7 @@ public:
         ARRAY_INIT_IDX(TFLOW_PROCESS_RPC_CMD_VERSION   ) { "version",    (tflow_cmd_field_t*)&cmd_flds_version,    THIS_M(&TFlowCtrlProcess::cmd_cb_version)   },
         ARRAY_INIT_IDX(TFLOW_PROCESS_RPC_CMD_CONTROLS  ) { "ui_sign",    (tflow_cmd_field_t*)&cmd_flds_config,     THIS_M(&TFlowCtrlProcess::cmd_cb_ui_sign)   },
         ARRAY_INIT_IDX(TFLOW_PROCESS_RPC_CMD_CONFIG    ) { "config",     (tflow_cmd_field_t*)&cmd_flds_config,     THIS_M(&TFlowCtrlProcess::cmd_cb_config)    },
-        ARRAY_INIT_IDX(TFLOW_PROCESS_RPC_CMD_PLAYER    ) { "player",     (tflow_cmd_field_t*)&cmd_flds_cfg_player, THIS_M(&TFlowCtrlProcess::cmd_cb_cfg_player)},
+        ARRAY_INIT_IDX(TFLOW_PROCESS_RPC_CMD_PLAYER    ) { "player",     (tflow_cmd_field_t*)&tflow_player_cfg.cmd_flds_cfg_player, THIS_M(&TFlowCtrlProcess::cmd_cb_cfg_player)},
         ARRAY_INIT_IDX(TFLOW_PROCESS_RPC_CMD_PLAYER_DIR) { "player_dir", (tflow_cmd_field_t*)&cmd_flds_player_dir, THIS_M(&TFlowCtrlProcess::cmd_cb_player_dir)},
         ARRAY_INIT_IDX(TFLOW_PROCESS_RPC_CMD_SET_AS_DEF) { "set_as_def", (tflow_cmd_field_t*)&cmd_flds_set_as_def, THIS_M(&TFlowCtrlProcess::cmd_cb_set_as_def)},
         ARRAY_INIT_IDX(TFLOW_PROCESS_RPC_CMD_LAST      ) { nullptr , nullptr, nullptr }

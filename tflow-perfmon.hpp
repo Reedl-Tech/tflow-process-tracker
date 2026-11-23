@@ -1,6 +1,12 @@
 #pragma once
 #include "tflow-build-cfg.hpp"
 
+#if _WIN32
+#include <WinSock2.h>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #include <time.h>
 #include <vector>
 
@@ -29,11 +35,11 @@ public:
     };
 
     const char *perfmon_show_entries[PERFMON_SHOW::NUM] = {
-        [PERFMON_SHOW::DISABLED]  = "Disabled",
-        [PERFMON_SHOW::FPS]       = "FPS",
-        [PERFMON_SHOW::LOAD_MSEC] = "Load(ms)",
-        [PERFMON_SHOW::LOAD_PERC] = "Load(%)",
-        [PERFMON_SHOW::LAST]      = nullptr
+        ARRAY_INIT_IDX(PERFMON_SHOW::DISABLED)  "Disabled",
+        ARRAY_INIT_IDX(PERFMON_SHOW::FPS)       "FPS",
+        ARRAY_INIT_IDX(PERFMON_SHOW::LOAD_MSEC) "Load(ms)",
+        ARRAY_INIT_IDX(PERFMON_SHOW::LOAD_PERC) "Load(%)",
+        ARRAY_INIT_IDX(PERFMON_SHOW::LAST)      nullptr
     };
 
     struct TFlowCtrlUI::uictrl ui_dd_perfmon_dbg = {
@@ -54,7 +60,7 @@ public:
         TFlowCtrl::tflow_cmd_field_t   lbl_y;
         TFlowCtrl::tflow_cmd_field_t   eomsg;
     } cmd_flds_cfg_perfmon = {
-        TFLOW_CMD_HEAD("navigator-perfmon"),
+        TFLOW_CMD_HEAD("perfmon"),
         .dbg_render   = { "perf_mon_dbg_render", TFlowCtrl::CFT_NUM, 0, {.num =   2}, &ui_dd_perfmon_dbg },
         .lbl_x        = { "lbl_x",      TFlowCtrl::CFT_NUM, 0, {.num = 300} },
         .lbl_y        = { "lbl_y",      TFlowCtrl::CFT_NUM, 0, {.num = 260} },

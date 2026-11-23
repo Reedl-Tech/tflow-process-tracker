@@ -97,96 +97,21 @@ void TFlowTrackerDashboard::onPointer(int event, int x, int y, int flags)
 TFlowTrackerDashboard::TFlowTrackerDashboard(
     const TFlowTracker* _trck,
     const TFlowTrackerCfg::cfg_trck_dashboard* _cfg,
-    const cv::Size &cam_frame_size) :
-    frame_size(_cfg->main_win_w.v.num, _cfg->main_win_h.v.num),
+    const cv::Size &_cam_frame_size) :
+    TFlowDashboard(
+        cv::Size2f((float)_cfg->main_win_w.v.num, (float)_cfg->main_win_h.v.num),       // Dashboard frame size
+        cv::Rect(
+            _cfg->main_win_w.v.num/2 - _cam_frame_size.width/2,
+            _cfg->main_win_h.v.num/2 - _cam_frame_size.height/2,
+            _cam_frame_size.width, _cam_frame_size.height)),               // Camera Rectangle at Dashboard center
     instrMilesi(cv::Point2i(_cfg->main_win_w.v.num/2, _cfg->main_win_h.v.num/2)),
     dbg_str{ TRACE_EN }
 {
     cfg = _cfg;
     trck = _trck;
 
-    frameMain   = Mat();               // Realocates Mat (wraps shared memory) on each frame
-    frameMainY  = Mat();
-    frameMainUV = Mat();
-
-    frameCamY  = Mat();
-    frameCamUV = Mat();
-
-    frame_size_nv12 = Size(frame_size.width,   frame_size.height + frame_size.height/2);
-    frame_size_Y    = Size(frame_size.width,   frame_size.height);
-    frame_size_UV   = Size(frame_size.width/2, frame_size.height/2);    // Att!: width/2 because of frameMainUV is 2 channel Mat (CV_8UC2)
-
-    // Set camera frame in center of dashboard
-    frameCamRect = cv::Rect(
-        frame_size.width/2 - cam_frame_size.width/2,
-        frame_size.height/2 - cam_frame_size.height/2,
-        cam_frame_size.width, cam_frame_size.height);  // Note1: Size is choosen by FLYN frame format just
-                                                       //       to avoid unnecessary scaling, but 
-                                                       //       can be any other as an actual camera 
-                                                       //       frame will be scaled to this rectangle.
-                                                       // Note2: right now crashes if not equal to frame size because of grid handling 
-                                            
     instr_refresh = 1;
-
-    render_prims.reserve(1000);
-
-#if OFFLINE_PROCESS
-    namedWindow(TFLOW_TRACKER_DASH_WIN, WINDOW_GUI_EXPANDED | WINDOW_KEEPRATIO);
-    moveWindow(TFLOW_TRACKER_DASH_WIN, 600, 300);
-    resizeWindow(TFLOW_TRACKER_DASH_WIN, frame_size);
-    setMouseCallback(TFLOW_TRACKER_DASH_WIN, dashb_on_mouse_cb, (void*)this);
-#endif
-
-}
-
-void TFlowTrackerDashboard::addCamFrame(const Mat& cam_frame_bw)
-{
-    if (!cam_frame_bw.empty() && !frameCamY.empty()) {
-        cam_frame_bw.copyTo(frameCamY);
-        frameCamY += 16;                      // +16 -> NV12 specific
-        frameCamUV = cv::Scalar(128, 128);    // No color components in algo -> fill with default const
-    }
-    else {
-        // Cleanup old frame ???
-    }
-}
-
-void TFlowTrackerDashboard::addCamFrameZoomed(const cv::Rect2f grid_sector)
-{
-    Rect uv_rect = UV_RECT(grid_sector);
-
-#if ZOOM_DIS
-    Mat frameZoomSrcY = frameCamY;
-    Mat frameZoomSrcUV = frameCamUV;
-#else 
-    Mat frameZoomSrcY = frameCamY(grid_sector);
-    Mat frameZoomSrcUV = frameCamUV(uv_rect);
-#endif
-
-    Mat frameZoomDstY;
-    Mat frameZoomDstUV;
-    if (grid_zoom_step > 0) {
-        // Zoom animation
-        Point2f src_tl = grid_sector.tl();
-        Point2f src_br = grid_sector.br();
-        Point2f dst_tl = frameCamRect.tl();
-        Point2f dst_br = frameCamRect.br();
-        auto tl = src_tl - ((src_tl - dst_tl) / grid_zoom_step);
-        auto br = src_br - ((src_br - dst_br) / grid_zoom_step);
-        
-        grid_zoom_step--;
-        frameZoomDstY = frameMainY(Rect(tl, br));
-        frameZoomDstUV = frameMainUV(UV_RECT(Rect(tl, br)));
-    }
-    else {
-        frameZoomDstY = frameMainY(frameCamRect);
-        frameZoomDstUV = frameMainUV(UV_RECT(frameCamRect));
-    }
-
-    cv::resize(frameZoomSrcY, frameZoomDstY, frameZoomDstY.size());
-    //frameZoomDst += 16;
-    cv::resize(frameZoomSrcUV, frameZoomDstUV, frameZoomDstUV.size());
-
+    preview_force_frame = 0;
 }
 
 void TFlowInstrumentMilesi::renderCompass(std::vector<draw::Prim> &prims,
@@ -254,15 +179,6 @@ void TFlowInstrumentMilesi::renderRoll(std::vector<draw::Prim> &prims,
     drawPolyLine(prims, roll_box_i, roll_color_d, 2);
 }
 
-void TFlowInstrumentMilesi::render(std::vector<draw::Prim> &prims, 
-    const TFlowImu::imu_milesi_v0 &imu, const TFlowTargeting &tgt, float camera_pitch_rad)
-{
-    renderCompass(prims, imu.yaw, 0.f, 0.f);
-    renderRoll(prims, imu.roll, 0.f, 0.f);
-    renderPitch(prims, imu.pitch, tgt.res_pitch, tgt.res_assisted_pitch);
-    renderCamera(prims, camera_pitch_rad - imu.pitch, 0.f, 0.f);
-}
-
 void TFlowInstrumentMilesi::renderPitch(std::vector<draw::Prim> &prims,
     float pitch_angl_rad, float stimul, float assist) 
 {
@@ -328,6 +244,25 @@ void TFlowInstrumentMilesi::renderPitch(std::vector<draw::Prim> &prims,
     c_assisted_i.y += (int)c_assisted.y;
     prims.emplace_back(draw::Circle{c_assisted_i, 5, pitch_color_h, 1 });
 }
+
+void TFlowInstrumentMilesi::render(std::vector<draw::Prim> &prims, 
+    const TFlowImu::imu_milesi_v2 &imu, const TFlowTargeting &tgt)
+{
+    renderCompass(prims, imu.yaw, 0.f, 0.f);
+    renderRoll(prims, imu.roll, 0.f, 0.f);
+    renderPitch(prims, imu.pitch, tgt.res_pitch, tgt.res_assisted_pitch);
+//    renderLocation();
+}
+
+void TFlowInstrumentMilesi::render(std::vector<draw::Prim> &prims, 
+    const TFlowImu::imu_milesi_v0 &imu, const TFlowTargeting &tgt, float camera_pitch_rad)
+{
+    renderCompass(prims, imu.yaw, 0.f, 0.f);
+    renderRoll(prims, imu.roll, 0.f, 0.f);
+    renderPitch(prims, imu.pitch, tgt.res_pitch, tgt.res_assisted_pitch);
+    renderCamera(prims, camera_pitch_rad - imu.pitch, 0.f, 0.f);
+}
+
 
 void TFlowInstrumentMilesi::initPitch()
 {
@@ -648,90 +583,16 @@ void TFlowInstrumentMilesi::createCircle(std::vector<cv::Point2f> &circle,
 
 }
 
-void TFlowTrackerDashboard::render()
+void TFlowTrackerDashboard::instrRender(std::vector<draw::Prim>& prims)
 {
-    // As frameMainY and frameMainUV always create in pair, thus check Y Mat only.
-    if (!frameMainY.empty()) {
-        draw::render(frameMainY, frameMainUV, render_prims);
-    }
-
-#if OFFLINE_PROCESS
-    // TODO: get rid of imshow - use tflow web instead
-    cv::cvtColorTwoPlane(frameMainY, frameMainUV, frameMainBGR, COLOR_YUV2BGR_NV12);
-    cv::imshow(TFLOW_TRACKER_DASH_WIN, frameMainBGR);
+#if AGT
+    const TFlowImu::imu_milesi_v2 &imu = trck->imu.ap_imu_milesi;
+    instrMilesi.render(prims, imu, trck->tgt);
+#else 
+    const TFlowImu::imu_milesi_v0 &imu = trck->imu.ap_imu_milesi_v0;
+    instrMilesi.render(prims, imu, trck->tgt, trck->servo_pitch.get_dutecycle_rad());
 #endif
-
-}
-
-void TFlowTrackerDashboard::instrRender()
-{
-    const TFlowImu::imu_milesi_v0 &imu = trck->imu.ap_imu;
     
-    instrMilesi.render(render_prims, imu, trck->tgt, trck->servo_pitch.get_dutecycle_rad());
-}
-
-void TFlowTrackerDashboard::getDashboardFrameSize(int *w, int *h)
-{
-    if (w && h) {
-        *w = frame_size.width;
-        *h = frame_size.height;
-    }
-}
-
-void TFlowTrackerDashboard::getDashboardFrameBuff(const uint8_t **buff, size_t *buff_len)
-{
-    if (buff && buff_len) {
-        *buff = frameMain.datastart;
-        *buff_len = frameMain.dataend - frameMain.datastart;
-    }
-}
-
-void TFlowTrackerDashboard::initDashboardFrame(TFlowBuf * buf)
-{
-    if (buf == nullptr || buf->start == MAP_FAILED) {
-        frameMain   = Mat();
-        frameMainY  = Mat();
-        frameMainUV = Mat();
-        frameCamY   = Mat();
-        frameCamUV  = Mat();
-    }
-    else {
-        initDashboardFrame((uint8_t *)buf->start);
-    }
-}
-
-void TFlowTrackerDashboard::initDashboardFrame(uint8_t* data_ptr)
-{
-    int frame_changed = 0;
-
-    if (data_ptr == nullptr) {
-        // Local allocation. Create Mat if not exists yet
-        if (frameMain.empty()) {
-            // Create local data buffer
-            frameMain = Mat(frame_size_nv12, CV_8UC1);
-            frame_changed = 1;
-        }
-    }
-    else {
-        // Create Mat using provided data buffer.
-        // Normally from Encoder or other streamer.
-        frameMain = Mat(frame_size_nv12, CV_8UC1, data_ptr);
-        frame_changed = 1;
-    }
-
-    if (frame_changed) {
-        // Create sub Mats from the frame
-        frameMainY  = Mat(frame_size_Y,    CV_8UC1, (void*)frameMain.datastart);
-        frameMainUV = Mat(frame_size_UV,   CV_8UC2, (void*)frameMainY.dataend);
-    
-        frameCamY  = frameMainY(frameCamRect);
-        frameCamUV = frameMainUV(UV_RECT(frameCamRect));
-    }
-
-    // Fill the frame 
-    static const cv::Scalar fill(128, 128);
-    frameMainY = 16;
-    frameMainUV = fill;
 }
 
 static void drawGrid(const cv::Rect2f &rect2f, const cv::Scalar &color, vector<draw::Prim>& prims) {

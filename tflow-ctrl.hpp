@@ -148,6 +148,7 @@ public:
     int collectCtrls(const tflow_cmd_field_t *cmd_fld, json11::Json::array &j_out_params);
     virtual void collectCtrlsCustom(UICTRL_TYPE custom_type, const tflow_cmd_field_t* cmd_fld, json11::Json::array& j_out_params) {};
 
+    static void setFieldStr(tflow_cmd_field_t &str_field, const char *new_str);
 private:
 
     static int setField(tflow_cmd_field_t* cmd_field, const json11::Json& in_param);

@@ -271,7 +271,7 @@ int TFlowGftt::get_busy()
 
 #endif
 
-void TFlowGftt::RenderGFTTPreview(std::vector<cv::gapi::wip::draw::Prim>& prims)
+void TFlowGftt::RenderGFTTPreview(const cv::Rect &cam_off, std::vector<cv::gapi::wip::draw::Prim>& prims)
 {
     int cfg_render_dbg = cfg_preview->render_dbg.v.num;
 
@@ -285,7 +285,7 @@ void TFlowGftt::RenderGFTTPreview(std::vector<cv::gapi::wip::draw::Prim>& prims)
 
 }
 
-void TFlowGftt::RenderGFTTFlytime(std::vector<cv::gapi::wip::draw::Prim>& prims)
+void TFlowGftt::RenderGFTTFlytime(const cv::Rect &cam_off, std::vector<cv::gapi::wip::draw::Prim>& prims)
 {
     int cfg_render_dbg = cfg_flytime->render_dbg.v.num;
 
@@ -319,11 +319,11 @@ void TFlowGftt::RenderGFTTFlytime(std::vector<cv::gapi::wip::draw::Prim>& prims)
         String time_spent_label = String(time_spent_str);
 
         prims.emplace_back(draw::Text{
-                    time_spent_label, Point2f(10, -10),
+                    time_spent_label, point2f_offset(cam_off, Point2f(10, -10)),
                     cv::FONT_HERSHEY_PLAIN, 1.2, white });
 
         prims.emplace_back(draw::Text{
-                    time_spent_label, Point2f(11, -11),
+                    time_spent_label, point2f_offset(cam_off, Point2f(11, -11)),
                     cv::FONT_HERSHEY_PLAIN, 1.2, red });
     }
 }

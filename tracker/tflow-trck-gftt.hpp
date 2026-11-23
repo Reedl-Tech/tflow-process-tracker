@@ -38,8 +38,8 @@ public:
 
     void preview_process();
 
-    void RenderGFTTFlytime(std::vector<cv::gapi::wip::draw::Prim>& prims);  // Executed in GFTT thread. Renders cell info, result, performance, etc.
-    void RenderGFTTPreview(std::vector<cv::gapi::wip::draw::Prim>& prims);  // Executed in GFTT thread. Renders cell info, result, performance, etc.
+    void RenderGFTTFlytime(const cv::Rect &cam_off, std::vector<cv::gapi::wip::draw::Prim>& prims);  // Executed in GFTT thread. Renders cell info, result, performance, etc.
+    void RenderGFTTPreview(const cv::Rect &cam_off, std::vector<cv::gapi::wip::draw::Prim>& prims);  // Executed in GFTT thread. Renders cell info, result, performance, etc.
 
     enum class RenderDbg {
         NONE    = 0,

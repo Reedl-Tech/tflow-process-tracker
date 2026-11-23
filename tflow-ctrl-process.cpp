@@ -1,7 +1,7 @@
 #include "tflow-build-cfg.hpp"
-#include <sys/stat.h>
 
 #if !(OFFLINE_PROCESS)
+#include <sys/stat.h>
 #include <dirent.h>
 #endif
 
@@ -10,25 +10,18 @@
 #include "tflow-glib.hpp"
 #include "tflow-process.hpp"
 
-#if !(OFFLINE_PROCESS)
 #include "tflow-ctrl-srv-process.hpp"
-#endif
 
 using namespace json11;
 using namespace std;
 
 static const std::string process_raw_cfg_default{ R"( 
-    {
-        "config" : {
-            "video_src" : 1
-        },
-        "player" : {
-            "file_name" : "/home/root/4",  
-            "fps" : 60,        
-            "frame_offset" : 0
-        },
+{
+    "config": {
+        "opencl": 1,
+        "video_src": "live"
     }
-)" };
+})" };
 
 
 TFlowCtrlSrvProcess::TFlowCtrlSrvProcess(TFlowCtrlProcess& _ctrl_process, MainContextPtr context) :
@@ -40,6 +33,7 @@ TFlowCtrlSrvProcess::TFlowCtrlSrvProcess(TFlowCtrlProcess& _ctrl_process, MainCo
 {
 }
 
+#if !(OFFLINE_PROCESS)
 int TFlowCtrlSrvProcess::onCliPortConnect(int fd)
 {
     auto cli_port_p = new TFlowCtrlCliPort(context, *this, fd);
@@ -69,6 +63,7 @@ void TFlowCtrlSrvProcess::onCliPortError(int fd)
 
     return;
 }
+#endif
 
 void TFlowCtrlSrvProcess::onTFlowCtrlMsg(const string& cmd, const Json& j_in_params, Json::object& j_out_params, int& err)
 {
@@ -159,9 +154,6 @@ void TFlowCtrlProcess::getUISignResponse(json11::Json::object &j_out_params)
     }
 #endif
 
-    //Json test = Json(j_out_params);
-    //std::string s_msg = test.dump();
-    //g_critical("signature: %s", s_msg.c_str());
 }
 
 void TFlowCtrlProcess::getSignResponse(json11::Json::object &j_out_params)
@@ -220,6 +212,7 @@ void TFlowCtrlProcess::collectCtrlsCustom(UICTRL_TYPE _custom_type,
         }
         j_out_ctrl_arr.emplace_back(j_arr_entry);
     }
+
 }
 
 int TFlowCtrlProcess::cmd_cb_version(const json11::Json& j_in_params, Json::object& j_out_params)
@@ -260,24 +253,14 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
         //       might be already changed and we don't have rollback functionality.
     }
 
-    //std::string indent("|");
-    //dumpFieldFlags(flds, indent);
+#if DUMP_CFG_FIELDS
+    std::string indent("|");
+    dumpFieldFlags(flds, indent);
+#endif    
 
     if (cmd_flds_config.video_src.flags & FIELD_FLAG::CHANGED) {
         app.setVideoSrc(cmd_flds_config.video_src.v.str);
     }
-
-#if WS_STREAMER
-    if (cmd_flds_config.ws_streamer.flags & FIELD_FLAG::CHANGED) {
-        TFlowWSStreamerCfg::cfg_ws_streamer* ws_streamer_rw_cfg = 
-            (TFlowWSStreamerCfg::cfg_ws_streamer*)cmd_flds_config.ws_streamer.v.ref;
-
-        if (app.ws_streamer) {
-            app.ws_streamer->onConfigValidate(j_out_params, ws_streamer_rw_cfg);
-            app.ws_streamer->onConfig(j_out_params);
-        }
-    }
-#endif
 
     if (app.algo && cmd_flds_config.algo.flags & FIELD_FLAG::CHANGED) {
         // Note: Json out params is not in use so far, but in theory, Algo
@@ -302,6 +285,7 @@ int TFlowCtrlProcess::cmd_cb_config(const json11::Json& j_in_params, Json::objec
 
 int TFlowCtrlProcess::cmd_cb_cfg_player(const Json& j_in_params, Json::object& j_out_params)
 {
+    TFlowPlayerCfg::cfg_player &cfg_player = tflow_player_cfg.cmd_flds_cfg_player;
     /*
      * {
      *  "name"  : <file_name>,
@@ -313,7 +297,6 @@ int TFlowCtrlProcess::cmd_cb_cfg_player(const Json& j_in_params, Json::object& j
      * }
      */
 
-#if !(OFFLINE_PROCESS)
     if (app.player == nullptr) {
         j_out_params.emplace("state", std::string("off"));
         j_out_params.emplace("note", std::string("player is disabled."));
@@ -336,6 +319,10 @@ int TFlowCtrlProcess::cmd_cb_cfg_player(const Json& j_in_params, Json::object& j
         // Set new file name and wake-up the player
         const std::string& file_name_new = j_in_params["file_name"].string_value();
 
+        // Dirty hack.
+        // TODO: Fix web to use both slashes Windows & Linux
+
+
         if (0 != strcmp(file_name_new.c_str(), app.player->player_fname_get())) {
 
             // Close current file if a new name specified
@@ -344,7 +331,7 @@ int TFlowCtrlProcess::cmd_cb_cfg_player(const Json& j_in_params, Json::object& j
 
             if (app.player->player_fname_is_valid(file_name_new.c_str())) {
                 // File name is changed and is valid
-                setFieldStr(&cmd_flds_cfg_player.file_name, file_name_new.c_str());
+                setFieldStr(&cfg_player.file_name, file_name_new.c_str());
 
                 // Send "wait" response
                 j_out_params.emplace("state", std::string("wait"));
@@ -386,14 +373,17 @@ int TFlowCtrlProcess::cmd_cb_cfg_player(const Json& j_in_params, Json::object& j
         int curr_frame = j_in_params["curr_frame"].int_value();
 
         if (0 == app.player->rewind(curr_frame)) {
-            cmd_flds_cfg_player.curr_frame.v.num = curr_frame;
-            if (app.algo) app.algo->onRewind();
+
+            TFlowAlgo::tflow_cfg_algo *rw_algo_cfg = 
+                (TFlowAlgo::tflow_cfg_algo *)cmd_flds_config.algo.v.ref;
+
+            if (app.algo) app.algo->onRewind(rw_algo_cfg);
         }
     }
 
     if (j_in_params["playback_speed"].is_number()) {
         // Can be changed on-fly
-        cmd_flds_cfg_player.playback_speed.v.dbl =
+        cfg_player.playback_speed.v.dbl =
             j_in_params["playback_speed"].number_value();
 
         if (app.player->is_play_state()) {
@@ -436,12 +426,11 @@ int TFlowCtrlProcess::cmd_cb_cfg_player(const Json& j_in_params, Json::object& j
      * }
      */
     j_out_params.emplace("state", app.player->getCurrentState());
-    j_out_params.emplace("file_name", std::string(cmd_flds_cfg_player.file_name.v.str));
+    j_out_params.emplace("file_name", std::string(cfg_player.file_name.v.str));
     j_out_params.emplace("frame_rate", app.player->getFrameRate());
-    j_out_params.emplace("playback_speed", cmd_flds_cfg_player.playback_speed.v.dbl);
+    j_out_params.emplace("playback_speed", cfg_player.playback_speed.v.dbl);
     j_out_params.emplace("curr_frame", app.player->getCurrFrame());
     j_out_params.emplace("frames_num", app.player->getFramesNum());
-#endif
 
     return 0;
 }

@@ -1,10 +1,15 @@
 #include "tflow-build-cfg.hpp"
+
 #if _WIN32
+
+#include "tflow-win.hpp"
 #include <io.h>
+
 #define open(a, b)    _open(a, b)
 #define close(a)      _close(a)
 #define read(a, b, c) _read(a, b, c)
 #define strdup(a)     _strdup(a)
+
 #endif
 
 #include <cassert>
@@ -807,6 +812,7 @@ int TFlowCtrl::parseConfig(
                 rc |= config_cmd->cb(j_cmd_cfg, j_out_params_dummy);
 #if CODE_BROWSE
                 TFlowCtrlProcess::cmd_cb_config();
+                TFlowCtrlCapture::cmd_cb_config();
 #endif
             }
             config_cmd++;
@@ -902,4 +908,21 @@ int TFlowCtrl::collectCtrls(const tflow_cmd_field_t *cmd_fld, Json::array &j_out
     }
 
     return 0;
+}
+
+void TFlowCtrl::setFieldStr(tflow_cmd_field_t &str_field, const char *new_str)
+{
+    assert(str_field.type == CFT_STR);
+
+    if (str_field.v.str) {
+        free(str_field.v.str);
+        str_field.v.str = nullptr;
+        str_field.flags |= TFlowCtrl::FIELD_FLAG::CHANGED;
+    }
+
+    if (new_str) {
+        str_field.v.str = strdup(new_str);
+        str_field.flags |= TFlowCtrl::FIELD_FLAG::CHANGED;
+    }
+
 }

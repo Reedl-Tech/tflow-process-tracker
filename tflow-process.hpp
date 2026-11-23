@@ -1,5 +1,10 @@
 #pragma once
 
+#if _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 #include <cassert>
 #include <ctime>
 #include <string>
@@ -14,12 +19,6 @@
 #include "tflow-buf-srv.hpp"
 #include "tflow-player.hpp"
 #include "tflow-algo.hpp"
-
-#include "tflow-btc.hpp"
-
-#include "streamer-ws/tflow-ws-vstreamer.hpp"
-#include "streamer-udp/tflow-udp-vstreamer.hpp"
-
 
 class TFlowStreamerProcess : TFlowBufSrv {
 
@@ -138,12 +137,9 @@ public:
     void onException();
 
     TFlowBufCli *buf_cli;
+    
     TFlowPlayer *player;
-    TFlowStreamer *fifo_streamer;
     TFlowAlgo* algo;
-    TFlowWsVStreamer *ws_streamer;
-    TFlowUDPVStreamer *udp_streamer;
-    TFlowBtc *btc_comm;
 
     void setOpenCL(int ocl_enabled);
 
@@ -158,9 +154,8 @@ public:
 
     int setVideoSrc(const char *video_src);
 
-    // Btc callbacks
-    void onBtcMsg(const char *btc_msg);
-    
+    //void onBtcMsg(const char *btc_msg);
+
     TFlowCtrlProcess ctrl;
 
 private:

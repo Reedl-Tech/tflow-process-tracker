@@ -1,3 +1,7 @@
+
+/*
+ * TODO: Split UDP functionality to the dedicated class TFlowUDP
+ */
 #include "tflow-build-cfg.hpp"
 #include <cassert>
 #include <functional>
@@ -366,7 +370,7 @@ int TFlowBtc::onMgMsgRcv()
     }
     
     // Parse Btc message, check vaidity, etc.
-    if (app_onBtcMsg) app_onBtcMsg(in_udp_msg);
+    if (app_onBtcMsg) app_onBtcMsg(in_udp_msg);     // Error here !!!!
 #if CODE_BROWSE
         TFlowProcess::onBtcMsg(in_msg);
 #endif
